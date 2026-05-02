@@ -1,407 +1,312 @@
-# FlowRL-with-sUOT
+# FPOT: Flow Policy via Optimal Transport
 
-JAX/Flax offline RL codebase for `sUOT`, `FQL`, and related agents.
+JAX/Flax implementation of **Flow Policy via Optimal Transport (FPOT)** — a
+value-weighted optimal-transport method for learning efficient one-step flow
+policies in offline reinforcement learning.
 
-## Running experiments
+FPOT jointly learns:
 
-All sweeps live under `experiments/eNNN_<name>.yaml`.  Use `scripts/submit.sh`
-to launch a Slurm array job, or `scripts/sweep_runner.py` to inspect individual
-jobs locally.
+- a **critic** `Q_φ(s, a)` from offline data,
+- a **value-aware reference flow policy** `μ_ω(s, z)` (multi-step Euler integration), and
+- a **one-step flow policy** `μ_θ(s, z)` deployed at inference.
 
-```bash
-# Submit a full sweep to Slurm (do not run on the login node)
-./scripts/submit.sh experiments/e001_suot_temp_tau_d4rl.yaml
+For each state, FPOT samples actions from both policies, builds an entropic
+optimal-transport coupling whose teacher-side marginal is critic-weighted, and
+distills the one-step policy toward transport-selected reference actions. This
+separates value guidance from direct critic maximization while preserving
+multimodal action structure.
 
-# Inspect what a specific job would run (no execution)
-python scripts/sweep_runner.py run --sweep experiments/e001_suot_temp_tau_d4rl.yaml \
-    --idx 0 --dry-run
+The paper's algorithm and theoretical analysis are summarized in
+[`FPOT/agent_fpot.py`](FPOT/agent_fpot.py); training details and per-task
+hyperparameters live in [`experiments/`](experiments/).
 
-# Count total jobs in a sweep
-python scripts/sweep_runner.py count --sweep experiments/e001_suot_temp_tau_d4rl.yaml
+---
+
+## Repository layout
+
+```
+FPOT/                       # Algorithm code
+  agent_fpot.py             # offline FPOT agent (paper Sec. 4)
+  agent_online.py           # offline-to-online variant (paper App. C.2)
+  common.py                 # shared critic helpers
+configs/                    # Hydra config groups
+  config.yaml               # top-level defaults
+  agent/fpot.yaml           # FPOT agent defaults (paper Tab. 2)
+  env/                      # 5 base templates: ogbench_state, ogbench_visual,
+                            #   d4rl_locomotion, d4rl_antmaze, d4rl_adroit
+  train/{offline,offline_to_online}.yaml
+  eval/default.yaml
+  logging/default.yaml
+experiments/                # Sweep specifications (paper-aligned)
+  benchmarks/
+    ogbench/{navigation,manipulation,visual}/
+    d4rl/{antmaze,adroit}/
+  ablations/                # N×M, τ×η, λ_q sweeps (paper App.)
+  online/                   # offline-to-online sweeps
+networks/, envs/, utils/    # Networks, env wrappers, training utilities
+scripts/
+  train.py                  # Hydra entry point
+  sweep_runner.py           # Resolve one sweep index → train.py command
+  submit.sh                 # Submit a sweep as a Slurm array
+  run_local_sweep.sh        # Round-robin a sweep across local GPUs (no Slurm)
+  launch_smoke.sh           # Compact multi-yaml multi-GPU launcher
+  train_fpot_online.py      # Standalone offline-to-online runner
+slurm/                      # Slurm runner shells
+requirements/               # Pinned dependency lists
 ```
 
-Legacy per-agent sbatch scripts are preserved in `scripts/legacy/` for
-reference but are no longer the primary way to launch experiments.
+---
 
-### Adding a new agent
+## Installation
 
-Three steps are all it takes — no changes to the training loop or sweep
-infrastructure needed:
+The codebase splits into two Python environments because D4RL and OGBench
+require incompatible MuJoCo / Python combinations.
 
-1. **Agent class** — create `agents/baselines/<name>/agent.py` (and
-   `__init__.py`) implementing the `.create()` / `.update()` /
-   `.sample_actions()` interface.  See `agents/baselines/iql/agent.py` as the
-   canonical example.
-
-2. **Config** — create `configs/agent/<name>.yaml` with the agent's
-   hyperparameters.  Set `name: <name>` and `agent_file: <name>`.
-
-3. **Dispatch** — add one line to `load_agent_class()` in
-   `scripts/train.py`:
-   ```python
-   if agent_file == "<name>":
-       return MyNewAgent
-   ```
-
-After that, write a sweep yaml under `experiments/` and launch with
-`./scripts/submit.sh`.
-
-**Currently available agents** (`agent_file` value → class):
-
-| `agent_file` | Class | Notes |
+| Conda env | Python | Use for |
 |---|---|---|
-| `agent_offline` | `OfflineSUOTAgent` | sUOT main agent |
-| `agent_gfot` | `GFOTAgent` | Value-aware BC + balanced OT |
-| `agent_fqot` | `FQOTAgent` | Flow-matching Q-filter |
-| `agent_online` | `OnlineSUOTAgent` | Online sUOT |
-| `iql` | `IQLAgent` | IQL baseline (Kostrikov et al., 2021) |
+| `flowrl-ogbench` | 3.12 | OGBench tasks (`*-singletask-*`) |
+| `flowrl-d4rl` | 3.10 | D4RL AntMaze / Adroit / locomotion |
 
-이 저장소는 환경을 두 갈래로 나눠서 쓰는 걸 권장합니다.
-
-- `D4RL`용: `antmaze`, `maze2d`, `Adroit(pen/door/hammer/relocate)` 등
-- `OGBench`용: `singletask-*` 등 최신 스택
-
-현재 파일 구조도 그 기준으로 정리돼 있습니다.
-
-- D4RL requirements: [`requirements-d4rl.txt`](requirements-d4rl.txt)
-- OGBench requirements: [`requirements-ogbench.txt`](requirements-ogbench.txt)
-
-이 README는 우선 `conda` 기준으로 정리합니다.
-
-## 0. 지금 이 리눅스 환경에서 먼저 알아둘 점
-
-이 문서는 현재 이 워크스페이스가 올라가 있는 리눅스 셸 기준으로 썼습니다.
-
-- 작업 디렉터리: `/home/manfromearth_11/FlowRL-with-sUOT`
-- conda base: `/home/manfromearth_11/miniconda3`
-- 현재 `base` 셸의 기본 Python: `3.13.12`
-
-중요:
-
-- `base`의 `python 3.13.12`에 바로 `pip install`하지 마세요.
-- 이 저장소는 task에 따라 별도 conda env를 써야 합니다.
-- 로그인 직후 `conda activate`가 안 먹으면 아래를 먼저 실행하면 됩니다.
-
-```bash
-source /home/manfromearth_11/miniconda3/etc/profile.d/conda.sh
-cd /home/manfromearth_11/FlowRL-with-sUOT
-```
-
-## 1. 권장 환경 구조와 Python 버전
-
-권장 conda env:
-
-- `flowrl-d4rl`
-- `flowrl-ogbench`
-
-이유:
-
-- D4RL은 `python 3.10 + mujoco-py + mujoco210 + old gym` 축이 필요합니다.
-- OGBench는 최신 JAX 스택이라 D4RL과 한 env에 넣으면 충돌 가능성이 큽니다.
-
-정리하면:
-
-- `antmaze`, `maze2d`, `adroit` 계열 -> `flowrl-d4rl` / `python=3.10`
-- `singletask-*` 같은 OGBench 계열 -> `flowrl-ogbench` / `python=3.12`
-
-## 2. D4RL용 conda env
-
-생성:
-
-```bash
-source /home/manfromearth_11/miniconda3/etc/profile.d/conda.sh
-cd /home/manfromearth_11/FlowRL-with-sUOT
-
-conda create -n flowrl-d4rl python=3.10 -y
-conda activate flowrl-d4rl
-python -m pip install --upgrade pip setuptools wheel
-pip install -r requirements-d4rl.txt
-```
-
-`requirements-d4rl.txt`는 다음 계열을 위한 환경입니다.
-
-- `antmaze-*`
-- `maze2d-*`
-- `pen-*`
-- `door-*`
-- `hammer-*`
-- `relocate-*`
-- 기타 D4RL prefix
-
-## 3. OGBench용 conda env
-
-생성:
-
-```bash
-source /home/manfromearth_11/miniconda3/etc/profile.d/conda.sh
-cd /home/manfromearth_11/FlowRL-with-sUOT
-
-conda create -n flowrl-ogbench python=3.12 -y
-conda activate flowrl-ogbench
-python -m pip install --upgrade pip setuptools wheel
-pip install -r requirements-ogbench.txt
-```
-
-이 env는 `singletask-*` 같은 OGBench용입니다.
-
-## 4. MuJoCo 2.1 설치
-
-D4RL 쪽은 `mujoco-py`가 `~/.mujoco/mujoco210`를 기대합니다.
-
-```bash
-mkdir -p ~/.mujoco
-cd ~/.mujoco
-curl -L https://github.com/deepmind/mujoco/releases/download/2.1.0/mujoco210-linux-x86_64.tar.gz -o mujoco210-linux-x86_64.tar.gz
-tar -xzf mujoco210-linux-x86_64.tar.gz
-```
-
-## 5. D4RL 실행 전 필수 env vars
-
-매 세션마다 최소한 아래를 잡고 실행하는 걸 권장합니다.
-
-```bash
-source /home/manfromearth_11/miniconda3/etc/profile.d/conda.sh
-conda activate flowrl-d4rl
-
-export JAX_NVIDIA_DIR="$CONDA_PREFIX/lib/python3.10/site-packages/nvidia"
-export LD_LIBRARY_PATH="$JAX_NVIDIA_DIR/cusparse/lib:$JAX_NVIDIA_DIR/cublas/lib:$JAX_NVIDIA_DIR/cuda_runtime/lib:$JAX_NVIDIA_DIR/cudnn/lib:$JAX_NVIDIA_DIR/cufft/lib:$JAX_NVIDIA_DIR/cusolver/lib:$JAX_NVIDIA_DIR/nccl/lib:$JAX_NVIDIA_DIR/nvjitlink/lib:$HOME/.mujoco/mujoco210/bin:/usr/lib/nvidia:/opt/ohpc/pub/apps/cuda/12.8/lib64:${LD_LIBRARY_PATH:-}"
-export MUJOCO_GL=osmesa
-export D4RL_SUPPRESS_IMPORT_ERROR=1
-```
-
-설명:
-
-- `JAX_NVIDIA_DIR`: conda env 내부 CUDA wheel 라이브러리 경로
-- `~/.mujoco/mujoco210/bin`: MuJoCo 2.1
-- `/usr/lib/nvidia`: `mujoco_py`가 요구하는 NVIDIA driver libs
-- `/opt/ohpc/pub/apps/cuda/12.8/lib64`: 클러스터 CUDA libs 예시
-
-클러스터마다 CUDA 경로는 다를 수 있습니다. 필요하면 경로만 바꿔서 쓰면 됩니다.
-
-## 6. JAX 확인
-
-### D4RL env
-
-```bash
-conda activate flowrl-d4rl
-python - <<'PY'
-import jax
-print("jax:", jax.__version__)
-print("backend:", jax.default_backend())
-print("devices:", jax.devices())
-PY
-```
+The dispatch is automatic: [`envs/env_utils.py`](envs/env_utils.py) routes any
+env name containing `singletask` to OGBench and the rest to D4RL.
 
 ### OGBench env
 
 ```bash
+conda create -n flowrl-ogbench python=3.12 -y
 conda activate flowrl-ogbench
-python - <<'PY'
-import jax
-print("jax:", jax.__version__)
-print("backend:", jax.default_backend())
-print("devices:", jax.devices())
-PY
+pip install -U pip setuptools wheel
+pip install -r requirements/requirements-ogbench.txt
 ```
 
-## 7. D4RL 데이터셋 이슈
+### D4RL env
 
-처음 `antmaze-*`를 실행하면 dataset을 다운로드합니다.
-
-가끔 다운로드가 중간에 끊겨서 아래 같은 에러가 납니다:
-
-```text
-OSError: Unable to synchronously open file (truncated file ...)
-```
-
-이 경우는 환경 문제가 아니라 `~/.d4rl/datasets/*.hdf5` 파일이 깨진 겁니다.
-
-### AntMaze medium play/diverse 직접 복구
-
-깨진 파일 삭제:
+D4RL needs MuJoCo 2.1 on disk:
 
 ```bash
-rm -f ~/.d4rl/datasets/Ant_maze_big-maze_noisy_multistart_True_multigoal_False_sparse_fixed.hdf5
-rm -f ~/.d4rl/datasets/Ant_maze_big-maze_noisy_multistart_True_multigoal_True_sparse_fixed.hdf5
+mkdir -p ~/.mujoco
+cd ~/.mujoco
+curl -L https://github.com/deepmind/mujoco/releases/download/2.1.0/mujoco210-linux-x86_64.tar.gz | tar -xz
 ```
 
-직접 다운로드:
+Then create the env:
 
 ```bash
-mkdir -p ~/.d4rl/datasets
-
-curl -L https://huggingface.co/datasets/imone/D4RL/resolve/main/Ant_maze_big-maze_noisy_multistart_True_multigoal_False_sparse_fixed.hdf5 \
-  -o ~/.d4rl/datasets/Ant_maze_big-maze_noisy_multistart_True_multigoal_False_sparse_fixed.hdf5
-
-curl -L https://huggingface.co/datasets/imone/D4RL/resolve/main/Ant_maze_big-maze_noisy_multistart_True_multigoal_True_sparse_fixed.hdf5 \
-  -o ~/.d4rl/datasets/Ant_maze_big-maze_noisy_multistart_True_multigoal_True_sparse_fixed.hdf5
-```
-
-크기 확인:
-
-```bash
-ls -lh ~/.d4rl/datasets/Ant_maze_big-maze_noisy_multistart_True_multigoal_*_sparse_fixed.hdf5
-```
-
-정상이면 대략 `221M` 정도로 보여야 합니다.
-
-## 8. D4RL smoke test
-
-```bash
+conda create -n flowrl-d4rl python=3.10 -y
 conda activate flowrl-d4rl
-export LD_LIBRARY_PATH=$HOME/.mujoco/mujoco210/bin:/usr/lib/nvidia:/opt/ohpc/pub/apps/cuda/12.8/lib64:$LD_LIBRARY_PATH
-export MUJOCO_GL=osmesa
-export D4RL_SUPPRESS_IMPORT_ERROR=1
-
-python scripts/train_pointmaze.py \
-  --env-name antmaze-medium-play-v2 \
-  --agent suot \
-  --seed 0 \
-  --w-temperature 0.3 \
-  --smoke
+pip install -U pip setuptools wheel
+pip install -r requirements/requirements-d4rl.txt
 ```
 
-## 9. AntMaze 실제 실행
-
-예시:
+D4RL also needs three runtime exports per shell session:
 
 ```bash
-source /home/manfromearth_11/miniconda3/etc/profile.d/conda.sh
-cd /home/manfromearth_11/FlowRL-with-sUOT
-
-conda activate flowrl-d4rl
 export JAX_NVIDIA_DIR="$CONDA_PREFIX/lib/python3.10/site-packages/nvidia"
-export LD_LIBRARY_PATH="$JAX_NVIDIA_DIR/cusparse/lib:$JAX_NVIDIA_DIR/cublas/lib:$JAX_NVIDIA_DIR/cuda_runtime/lib:$JAX_NVIDIA_DIR/cudnn/lib:$JAX_NVIDIA_DIR/cufft/lib:$JAX_NVIDIA_DIR/cusolver/lib:$JAX_NVIDIA_DIR/nccl/lib:$JAX_NVIDIA_DIR/nvjitlink/lib:$HOME/.mujoco/mujoco210/bin:/usr/lib/nvidia:/opt/ohpc/pub/apps/cuda/12.8/lib64:${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="$JAX_NVIDIA_DIR/cusparse/lib:$JAX_NVIDIA_DIR/cublas/lib:$JAX_NVIDIA_DIR/cuda_runtime/lib:$JAX_NVIDIA_DIR/cudnn/lib:$JAX_NVIDIA_DIR/cufft/lib:$JAX_NVIDIA_DIR/cusolver/lib:$JAX_NVIDIA_DIR/nccl/lib:$JAX_NVIDIA_DIR/nvjitlink/lib:$HOME/.mujoco/mujoco210/bin:/usr/lib/nvidia:${LD_LIBRARY_PATH:-}"
 export MUJOCO_GL=osmesa
 export D4RL_SUPPRESS_IMPORT_ERROR=1
-
-python scripts/train_pointmaze.py \
-  --env-name antmaze-medium-play-v2 \
-  --agent suot \
-  --seed 0 \
-  --w-temperature 0.3 \
-  --wandb-project antmaze-medium-0316
 ```
 
-8개 배치 실행 스크립트:
+Verify GPU detection:
 
 ```bash
-bash scripts/run_antmaze_suot_0316.sh
+python -c "import jax; print(jax.devices())"
 ```
 
-주의:
-
-- 현재 [`scripts/run_antmaze_suot_0316.sh`](scripts/run_antmaze_suot_0316.sh)는 `.venv-d4rl/bin/python`을 가리키고 있습니다.
-- conda만 쓸 거면 이 스크립트를 conda env 기준으로 바꾸거나, 직접 명령으로 실행하는 편이 더 안전합니다.
-
-## 10. OGBench 실행
-
-예시:
-
-```bash
-conda activate flowrl-ogbench
-
-python scripts/train_pointmaze.py \
-  --env-name singletask-xyz \
-  --agent suot \
-  --seed 0
-```
-
-실제 OGBench env name은 설치된 benchmark 이름에 맞게 넣으면 됩니다.
-
-## 11. 현재 env 분기
-
-현재 [`envs/env_utils.py`](envs/env_utils.py) 기준 분기:
-
-- `singletask-*` -> OGBench
-- 나머지 D4RL prefix (`antmaze-*`, `maze2d-*`, `pointmaze-*`, `pen-*`, `door-*`, `hammer-*`, `relocate-*`, `halfcheetah-*`, `hopper-*`, `walker2d-*`, `D4RL/*`, `mujoco/*`) -> D4RL
-
-즉 지금 구조상 `minari_utils` 없이 D4RL 경로로 가도록 정리돼 있습니다.
-
-## 12. 자주 막히는 문제
-
-### `ModuleNotFoundError: No module named 'jax'`
-
-대부분 `base` env에서 돌린 경우입니다.
-
-```bash
-conda activate flowrl-d4rl
-```
-
-또는
-
-```bash
-conda activate flowrl-ogbench
-```
-
-### `Missing path to your environment variable ... /usr/lib/nvidia`
-
-`mujoco_py`가 NVIDIA driver lib 경로를 못 찾는 경우입니다.
-
-아래를 `LD_LIBRARY_PATH`에 포함해야 합니다:
-
-```bash
-/usr/lib/nvidia
-```
-
-### `Unable to load cuSPARSE`
-
-JAX CUDA runtime을 못 찾는 경우입니다.
-
-확인:
-
-```bash
-python -m pip show jax jaxlib jax-cuda12-plugin nvidia-cusparse-cu12
-```
-
-필요하면 재설치:
-
-```bash
-pip install --upgrade "jax[cuda12]==0.6.2"
-```
-
-### `truncated file`
-
-깨진 dataset 파일입니다. 위 7번 절차대로 다시 받으면 됩니다.
-
-## 13. W&B
-
-로그인이 필요하면 각 env에서:
+### WandB
 
 ```bash
 wandb login
 ```
 
-프로젝트 이름은 실행 시 `--wandb-project ...`로 지정합니다.
+Logs are organized into six projects (see [Logging](#logging)), so no per-task
+project setup is needed.
 
-## 14. 이 리눅스 셸에서 바로 실행하는 예시
+---
 
-### D4RL / AntMaze 단일 실행
+## Running experiments
+
+Every experiment is a single yaml under [`experiments/`](experiments/). Each
+yaml specifies the Cartesian product of overrides to run, plus the Slurm
+submission settings.
+
+### Inspect what a sweep would launch
 
 ```bash
-source /home/manfromearth_11/miniconda3/etc/profile.d/conda.sh
-cd /home/manfromearth_11/FlowRL-with-sUOT
-conda activate flowrl-d4rl
+# Total number of jobs in the array
+python scripts/sweep_runner.py count \
+    --sweep experiments/benchmarks/ogbench/manipulation/cube_single.yaml
 
-export JAX_NVIDIA_DIR="$CONDA_PREFIX/lib/python3.10/site-packages/nvidia"
-export LD_LIBRARY_PATH="$JAX_NVIDIA_DIR/cusparse/lib:$JAX_NVIDIA_DIR/cublas/lib:$JAX_NVIDIA_DIR/cuda_runtime/lib:$JAX_NVIDIA_DIR/cudnn/lib:$JAX_NVIDIA_DIR/cufft/lib:$JAX_NVIDIA_DIR/cusolver/lib:$JAX_NVIDIA_DIR/nccl/lib:$JAX_NVIDIA_DIR/nvjitlink/lib:$HOME/.mujoco/mujoco210/bin:/usr/lib/nvidia:/opt/ohpc/pub/apps/cuda/12.8/lib64:${LD_LIBRARY_PATH:-}"
-export MUJOCO_GL=osmesa
-export D4RL_SUPPRESS_IMPORT_ERROR=1
-
-CUDA_VISIBLE_DEVICES=0 python scripts/train_pointmaze.py \
-  --env-name antmaze-medium-diverse-v2 \
-  --agent suot \
-  --seed 1 \
-  --w-temperature 0.20 \
-  --wandb-project antmaze-diverse
+# Show the exact train.py command for one index, without running it
+python scripts/sweep_runner.py run \
+    --sweep experiments/benchmarks/ogbench/manipulation/cube_single.yaml \
+    --idx 0 --dry-run
 ```
 
-### tmux로 2개 띄우기 예시
+### Submit to Slurm
 
 ```bash
-tmux new-session -d -s flowrl
-tmux send-keys -t flowrl:0.0 'source /home/manfromearth_11/miniconda3/etc/profile.d/conda.sh && cd /home/manfromearth_11/FlowRL-with-sUOT && conda activate flowrl-d4rl && export JAX_NVIDIA_DIR="$CONDA_PREFIX/lib/python3.10/site-packages/nvidia" && export LD_LIBRARY_PATH="$JAX_NVIDIA_DIR/cusparse/lib:$JAX_NVIDIA_DIR/cublas/lib:$JAX_NVIDIA_DIR/cuda_runtime/lib:$JAX_NVIDIA_DIR/cudnn/lib:$JAX_NVIDIA_DIR/cufft/lib:$JAX_NVIDIA_DIR/cusolver/lib:$JAX_NVIDIA_DIR/nccl/lib:$JAX_NVIDIA_DIR/nvjitlink/lib:$HOME/.mujoco/mujoco210/bin:/usr/lib/nvidia:/opt/ohpc/pub/apps/cuda/12.8/lib64:${LD_LIBRARY_PATH:-}" && export MUJOCO_GL=osmesa && export D4RL_SUPPRESS_IMPORT_ERROR=1 && CUDA_VISIBLE_DEVICES=0 python scripts/train_pointmaze.py --env-name antmaze-medium-diverse-v2 --agent suot --seed 1 --w-temperature 0.20 --wandb-project antmaze-diverse' C-m
-tmux split-window -h -t flowrl:0
-tmux send-keys -t flowrl:0.1 'source /home/manfromearth_11/miniconda3/etc/profile.d/conda.sh && cd /home/manfromearth_11/FlowRL-with-sUOT && conda activate flowrl-d4rl && export JAX_NVIDIA_DIR="$CONDA_PREFIX/lib/python3.10/site-packages/nvidia" && export LD_LIBRARY_PATH="$JAX_NVIDIA_DIR/cusparse/lib:$JAX_NVIDIA_DIR/cublas/lib:$JAX_NVIDIA_DIR/cuda_runtime/lib:$JAX_NVIDIA_DIR/cudnn/lib:$JAX_NVIDIA_DIR/cufft/lib:$JAX_NVIDIA_DIR/cusolver/lib:$JAX_NVIDIA_DIR/nccl/lib:$JAX_NVIDIA_DIR/nvjitlink/lib:$HOME/.mujoco/mujoco210/bin:/usr/lib/nvidia:/opt/ohpc/pub/apps/cuda/12.8/lib64:${LD_LIBRARY_PATH:-}" && export MUJOCO_GL=osmesa && export D4RL_SUPPRESS_IMPORT_ERROR=1 && CUDA_VISIBLE_DEVICES=1 python scripts/train_pointmaze.py --env-name antmaze-medium-play-v2 --agent suot --seed 1 --w-temperature 0.10 --wandb-project antmaze-play' C-m
-tmux attach -t flowrl
+bash scripts/submit.sh experiments/benchmarks/ogbench/manipulation/cube_single.yaml
+```
+
+The submitter reads `env_set`, `slurm:`, `wandb_project`, and `name` from the
+yaml, picks the right runner (`slurm/ogbench_array.sh` vs `slurm/d4rl_array.sh`,
+which differ only in the conda env they activate), computes the array size,
+builds the sbatch flags, and submits.
+
+To run only a subset of indices (e.g. seeds 1 and 5 across 5 tasks
+correspond to indices `0,4,8,12,16,20,24,28,32,36`):
+
+```bash
+bash scripts/submit.sh experiments/.../cube_single.yaml \
+    --array=0,4,8,12,16,20,24,28,32,36
+```
+
+### Run on a single multi-GPU box (no Slurm)
+
+```bash
+# Round-robin one yaml across 8 GPUs, 1 job per GPU
+bash scripts/run_local_sweep.sh \
+    experiments/benchmarks/ogbench/manipulation/cube_single.yaml 8 1
+```
+
+### Single job, foreground
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python scripts/train.py \
+    env=ogbench_state \
+    env.env_name=cube-single-play-singletask-task1-v0 \
+    agent.w_temperature=2.0 \
+    agent.eta_temperature=1e-1 \
+    agent.use_vabc_td_target=true \
+    seed=1
+```
+
+---
+
+## Configuration system
+
+Hydra resolves configs in this order:
+1. Defaults from `configs/config.yaml` (`agent: fpot`, `env: ogbench_state`,
+   `train: offline`, `eval: default`, `logging: default`).
+2. Config-group overrides from the sweep yaml's `fixed:` block (e.g.
+   `env: ogbench_state`).
+3. Field overrides from the same `fixed:` block (e.g. `agent.w_temperature: 2.0`).
+4. Sweep-axis overrides from `sweep:` (one combination per array index).
+5. Anything passed on the command line.
+
+The full list of agent hyperparameters lives in
+[`configs/agent/fpot.yaml`](configs/agent/fpot.yaml). Every field corresponds
+to a paper notation, e.g.
+
+| Config key | Paper symbol | Meaning |
+|---|---|---|
+| `agent.w_temperature` | τ | teacher-marginal softmax temperature |
+| `agent.eta_temperature` | η | value-aware BC temperature |
+| `agent.n_student` / `agent.n_teacher` | N / M | one-step / reference samples per state |
+| `agent.sinkhorn_eps` / `agent.sinkhorn_iters` | ε / T | Sinkhorn regularization & iterations |
+| `agent.lambda_vbc` / `agent.lambda_distill` | λ_VBC / λ_distill | loss weights |
+| `agent.lambda_q` | λ_q | (ablation only; default 0) direct critic-max term |
+| `agent.use_vabc_td_target` | y^VaBC | VaBC TD target variant |
+| `agent.q_agg` | — | `mean` (default) or `min` (CDQL) |
+| `agent.discount` | γ | per-task override |
+
+The new env scheme uses **5 base templates** (`ogbench_state`, `ogbench_visual`,
+`d4rl_locomotion`, `d4rl_antmaze`, `d4rl_adroit`) and a per-task `env.env_name`
+override, instead of one yaml per task.
+
+---
+
+## Reproducing the paper
+
+| Paper table / section | Yamls |
+|---|---|
+| Tab. 1, OGBench Navigation | `experiments/benchmarks/ogbench/navigation/*.yaml` |
+| Tab. 1, OGBench Manipulation | `experiments/benchmarks/ogbench/manipulation/*.yaml` |
+| Tab. 1, OGBench Visual | `experiments/benchmarks/ogbench/visual/*.yaml` |
+| Tab. 1, D4RL AntMaze | `experiments/benchmarks/d4rl/antmaze/*.yaml` |
+| Tab. 1, D4RL Adroit | `experiments/benchmarks/d4rl/adroit/*.yaml` |
+| App., N × M ablation | `experiments/ablations/nm_*.yaml` |
+| App., τ × η sensitivity | `experiments/ablations/sensitivity_*.yaml` |
+| App., λ_q ablation | `experiments/ablations/qmax_*.yaml` |
+| App. C.2, offline-to-online | `experiments/online/*.yaml` |
+
+Hyperparameters in every yaml are taken directly from the paper's Tables 2–5;
+each yaml lists the source line in its `description:` field. Each yaml sweeps
+the full set of seeds reported in the paper (1–8 for state-based / D4RL,
+1–4 for visual). See [`experiments/README.md`](experiments/README.md) for the
+yaml schema.
+
+---
+
+## Logging
+
+Six WandB projects collect everything; nothing fans out per-task:
+
+| Project | Source |
+|---|---|
+| `fpot_ogbench_benchmark` | `experiments/benchmarks/ogbench/**/*.yaml` |
+| `fpot_d4rl_benchmark` | `experiments/benchmarks/d4rl/**/*.yaml` |
+| `fpot_ablation_nm` | `experiments/ablations/nm_*.yaml` |
+| `fpot_ablation_sensitivity` | `experiments/ablations/sensitivity_*.yaml` |
+| `fpot_ablation_qmax` | `experiments/ablations/qmax_*.yaml` |
+| `fpot_online` | `experiments/online/*.yaml` |
+
+Each run gets:
+
+- **Name**: `<task> | <swept axes> | s<seed>` — e.g.
+  `cube_single_play_t1 | s1`, or `cube_double_play_t2 | wt=2 eta=0.01 | s1` for
+  a sensitivity run.
+- **Group**: same as name without the seed (collects seeds for one cell).
+- **Tags** (searchable in the WandB UI): `task:`, `family:`, `seed:`, `agent:`,
+  `env_set:`, `wt:`, `eta:`, `vabc:`, `q_agg:`, `discount:`, `lq:`, `N:`, `M:`,
+  plus any swept-axis keys and `exp:<sweep-name>`.
+
+Disable on-disk artifacts (e.g. on space-constrained machines) with:
+
+```
+--override logging.save_csv=false \
+--override logging.save_config=false \
+--override logging.save_checkpoint=false
+```
+
+passed to `sweep_runner.py run`.
+
+---
+
+## Outputs
+
+By default each run writes to:
+
+```
+outputs/<env_name>/<sweep_name>/<hp_subdir>/seed_<N>/run_NN/
+```
+
+with `metrics.csv`, `config.yaml`, `config.json`, and (if `save_checkpoint=true`)
+`final_agent/params_0.pkl`. The output root is `outputs/` in the project
+directory; change it via `logging.root_dir`.
+
+---
+
+## Common issues
+
+| Symptom | Fix |
+|---|---|
+| `ModuleNotFoundError: No module named 'jax'` | Wrong conda env. `conda activate flowrl-{ogbench,d4rl}`. |
+| D4RL: `Missing path to your environment variable .../usr/lib/nvidia` | `mujoco_py` cannot find NVIDIA driver libs; add `/usr/lib/nvidia` to `LD_LIBRARY_PATH`. |
+| `Unable to load cuSPARSE` | JAX cannot find its CUDA wheels. Verify `JAX_NVIDIA_DIR` is set, or `pip install --upgrade "jax[cuda13]==0.9.1"`. |
+| D4RL: `OSError: Unable to synchronously open file (truncated file)` | Corrupted dataset under `~/.d4rl/datasets/`. Delete and re-download (or fetch directly from `https://huggingface.co/datasets/imone/D4RL`). |
+| Hydra: `Could not override 'env.env_name'` | Make sure the yaml has `env: ogbench_state` (or another template) in its `fixed:` block before the per-task `env.env_name:` overrides. |
+
+---
+
+## Citation
+
+```bibtex
+@inproceedings{fpot2026,
+  title  = {Learning Multimodal One-step Flow Policy via Value-weighted Optimal Transport},
+  author = {Anonymous},
+  year   = {2026},
+  note   = {Under review at NeurIPS 2026.}
+}
 ```
