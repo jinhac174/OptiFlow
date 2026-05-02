@@ -255,12 +255,12 @@ Six WandB projects collect everything; nothing fans out per-task:
 Each run gets:
 
 - **Name**: `<task> | <swept axes> | s<seed>` — e.g.
-  `cube_single_play_t1 | s1`, or `cube_double_play_t2 | wt=2 eta=0.01 | s1` for
-  a sensitivity run.
+  `cube_single_play_task1 | s1`, or `cube_double_play_task2 | tau=2 eta=0.01 | s1`
+  for a sensitivity run.
 - **Group**: same as name without the seed (collects seeds for one cell).
-- **Tags** (searchable in the WandB UI): `task:`, `family:`, `seed:`, `agent:`,
-  `env_set:`, `wt:`, `eta:`, `vabc:`, `q_agg:`, `discount:`, `lq:`, `N:`, `M:`,
-  plus any swept-axis keys and `exp:<sweep-name>`.
+- **Tags**: `task:<name>`, `seed:<n>`, `tau:<v>`, `eta:<v>`, plus the values
+  of any swept axes (e.g. `lq:0.1` in λ_q ablations, `N:16 M:64` in N×M
+  ablations). Offline-to-online runs also carry `off2on`.
 
 Disable on-disk artifacts (e.g. on space-constrained machines) with:
 

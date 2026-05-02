@@ -308,22 +308,20 @@ def ensure_run_dir(cfg: DictConfig) -> Path:
 _TASK_RE = re.compile(r'^(.+)-singletask-task(\d+)$')
 
 
-def _clean_task_name(env_name: str) -> tuple[str, str]:
-    """Convert raw env_name string to (clean_task, family) for naming/tagging.
+def _clean_task_name(env_name: str) -> str:
+    """Convert raw env_name string to a clean task name for naming/tagging.
 
     Examples:
-        cube-single-play-singletask-task1-v0 -> ('cube_single_play_t1', 'cube_single_play')
-        antmaze-large-navigate-singletask-task3-v0 -> ('antmaze_large_navigate_t3', 'antmaze_large_navigate')
-        antmaze-umaze-v2  -> ('antmaze_umaze', 'antmaze_umaze')
-        door-cloned-v1    -> ('door_cloned', 'door_cloned')
+        cube-single-play-singletask-task1-v0 -> 'cube_single_play_task1'
+        antmaze-large-navigate-singletask-task3-v0 -> 'antmaze_large_navigate_task3'
+        antmaze-umaze-v2  -> 'antmaze_umaze'
+        door-cloned-v1    -> 'door_cloned'
     """
     s = re.sub(r'-v\d+$', '', env_name)
     m = _TASK_RE.match(s)
     if m:
-        family = m.group(1).replace('-', '_')
-        return f"{family}_t{m.group(2)}", family
-    family = s.replace('-', '_')
-    return family, family
+        return f"{m.group(1).replace('-', '_')}_task{m.group(2)}"
+    return s.replace('-', '_')
 
 
 def maybe_init_wandb(cfg: DictConfig, run_dir: Path):
@@ -340,21 +338,19 @@ def maybe_init_wandb(cfg: DictConfig, run_dir: Path):
     except Exception:
         overrides = []
 
-    _, seed_str, exp_tag, ablation_parts = _parse_overrides(overrides)
+    _, seed_str, _, ablation_parts = _parse_overrides(overrides)
     if seed_str is None:
         seed_str = str(cfg.seed)
 
     # --- task name from cfg.env.env_name (the actual env id, not config-group) ---
-    raw_env = str(cfg.env.env_name)
-    clean_task, family = _clean_task_name(raw_env)
+    clean_task = _clean_task_name(str(cfg.env.env_name))
 
-    # --- normalize swept-axis keys for short, readable names ---
+    # --- short keys for swept axes (used in run name + tags) ---
     _KEY_REMAP = {
-        "w_temperature": "wt",
+        "w_temperature": "tau",
         "eta_temperature": "eta",
         "n_student": "N",
         "n_teacher": "M",
-        "use_vabc_td_target": "vabc",
         "lambda_q": "lq",
     }
     ablation_parts = [(_KEY_REMAP.get(k, k), v) for k, v in ablation_parts]
@@ -378,7 +374,7 @@ def maybe_init_wandb(cfg: DictConfig, run_dir: Path):
 
     wandb_job_type = cfg.agent.name
 
-    # --- tags: facets for searching/filtering on wandb ---
+    # --- tags: minimal — task, seed, tau, eta, plus any swept axes ---
     def _tag_val(v):
         if isinstance(v, bool):
             return str(v).lower()
@@ -388,38 +384,19 @@ def maybe_init_wandb(cfg: DictConfig, run_dir: Path):
 
     tags = [
         f"task:{clean_task}",
-        f"family:{family}",
         f"seed:{seed_str}",
-        f"agent:{cfg.agent.name}",
-        f"env_set:{cfg.env.name}",
     ]
-    # Always-relevant agent hyperparams (whether swept or fixed)
-    for cfg_key, tag_key in [
-        ("w_temperature",        "wt"),
-        ("eta_temperature",      "eta"),
-        ("use_vabc_td_target",   "vabc"),
-        ("q_agg",                "q_agg"),
-        ("discount",             "discount"),
-        ("lambda_q",             "lq"),
-        ("n_student",            "N"),
-        ("n_teacher",            "M"),
-    ]:
-        v = cfg.agent.get(cfg_key, None)
-        if v is not None:
-            tags.append(f"{tag_key}:{_tag_val(v)}")
-
-    # Any other swept axes that aren't in the canonical list above
+    tau_val = cfg.agent.get("w_temperature", None)
+    if tau_val is not None:
+        tags.append(f"tau:{_tag_val(float(tau_val))}")
+    eta_val = cfg.agent.get("eta_temperature", None)
+    if eta_val is not None:
+        tags.append(f"eta:{_tag_val(float(eta_val))}")
+    # Swept-axis values (e.g. lambda_q, N, M for ablations) — skip if duplicate of tau/eta
     seen_keys = {t.split(":", 1)[0] for t in tags}
     for short_key, value in ablation_parts:
         if short_key not in seen_keys:
             tags.append(f"{short_key}:{value}")
-
-    if exp_tag is not None:
-        tags.append(f"exp:{exp_tag}")
-    extra_tags = cfg.logging.get("wandb_tags", []) or []
-    if isinstance(extra_tags, str):
-        extra_tags = [extra_tags]
-    tags.extend(extra_tags)
     if is_o2o:
         tags.append("off2on")
 
