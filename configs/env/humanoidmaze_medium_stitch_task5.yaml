@@ -1,5 +1,0 @@
-name: humanoidmaze_medium_stitch
-env_name: humanoidmaze-medium-stitch-singletask-task5-v0
-frame_stack: null
-action_clip_eps: 1.0e-5
-antmaze_reward_mode: null

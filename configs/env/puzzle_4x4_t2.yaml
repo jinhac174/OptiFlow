@@ -1,5 +1,0 @@
-name: puzzle_4x4_t2
-env_name: puzzle-4x4-play-singletask-task2-v0
-frame_stack: null
-action_clip_eps: 1.0e-5
-antmaze_reward_mode: null

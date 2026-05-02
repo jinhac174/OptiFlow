@@ -1,0 +1,36 @@
+name: fpot_d4rl_antmaze_umaze_diverse
+description: FPOT on D4RL antmaze-umaze-diverse-v2, seeds 1-8, 500K steps (paper Tab. 5; CDQL=true)
+env_set: d4rl
+wandb_project: fpot_d4rl_antmaze_umaze_diverse
+
+sweep:
+  seed: [1, 2, 3, 4, 5, 6, 7, 8]
+
+fixed:
+  env: d4rl_antmaze
+  env.env_name: antmaze-umaze-diverse-v2
+  agent: fpot
+  agent.w_temperature: 1.5
+  agent.eta_temperature: 1e-06
+  agent.q_agg: min
+  agent.use_vabc_td_target: false
+  agent.discount: 0.99
+  train.max_steps: 500000
+  train.eval_interval: 20000
+
+slurm:
+  time: "72:00:00"
+  mem: "64G"
+  cpus_per_task: 20
+  qos: big_qos
+  partitions:
+    - base_suma_rtx3090
+    - big_suma_rtx3090
+    - dell_rtx3090
+    - suma_rtx4090
+    - suma_a6000
+    - gigabyte_a6000
+    - gigabyte_a5000
+    - asus_6000ada
+    - asus_a5000
+    - tyan_a6000

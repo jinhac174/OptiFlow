@@ -1,0 +1,37 @@
+name: fpot_ablation_qmax_cube_double
+description: lambda_q ablation on cube-double-play-task2 (4 x 8 seeds = 32 jobs)
+env_set: ogbench
+wandb_project: fpot_ablation_qmax_cube_double
+
+sweep:
+  agent.lambda_q: [0.0, 0.1, 1.0, 3.0]
+  seed: [1, 2, 3, 4, 5, 6, 7, 8]
+
+fixed:
+  env: ogbench_state
+  env.env_name: cube-double-play-singletask-task2-v0
+  agent: fpot
+  agent.w_temperature: 2.0
+  agent.eta_temperature: 0.01
+  agent.q_agg: mean
+  agent.use_vabc_td_target: true
+  agent.discount: 0.99
+  train.max_steps: 1000000
+  train.eval_interval: 20000
+
+slurm:
+  time: "72:00:00"
+  mem: "64G"
+  cpus_per_task: 20
+  qos: big_qos
+  partitions:
+    - base_suma_rtx3090
+    - big_suma_rtx3090
+    - dell_rtx3090
+    - suma_rtx4090
+    - suma_a6000
+    - gigabyte_a6000
+    - gigabyte_a5000
+    - asus_6000ada
+    - asus_a5000
+    - tyan_a6000

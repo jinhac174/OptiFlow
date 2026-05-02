@@ -1,5 +1,0 @@
-name: halfcheetah_medium
-env_name: halfcheetah-medium-v2
-frame_stack: null
-action_clip_eps: 1.0e-5
-antmaze_reward_mode: null

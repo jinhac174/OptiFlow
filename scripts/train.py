@@ -1,10 +1,13 @@
 """
-FlowRL-sUOT training script.
+FPOT training script.
+
+Hydra entry point. The agent class is selected by `cfg.agent.agent_file`:
+    agent_fpot   -> FPOTAgent              (offline)
+    agent_online -> OnlineFPOTAgent        (offline-to-online)
 
 Usage:
-    python scripts/train.py env=hopper_medium +experiment=offline_base seed=1
-    python scripts/train.py train=online +experiment=online env=hopper seed=1
-    python scripts/train.py env=walker2d_medium +experiment=offline_t20 seed=2
+    python scripts/train.py env=cube_single_play_task1 seed=1
+    python scripts/train.py train=offline_to_online env=cube_double_play_task2 seed=1
 """
 import sys
 from datetime import datetime
@@ -78,14 +81,6 @@ WANDB_METRICS = {
     # Online phase
     "train/buffer_size":                            "online/buffer_size",
     "train/env_steps":                              "online/env_steps",
-    # IQL-specific
-    "train/value/loss":                             "value/loss",
-    "train/value/v_mean":                           "value/v_mean",
-    "train/value/v_max":                            "value/v_max",
-    "train/value/v_min":                            "value/v_min",
-    "train/actor/adv_mean":                         "actor/adv_mean",
-    "train/actor/adv_max":                          "actor/adv_max",
-    "train/actor/exp_adv_mean":                     "actor/exp_adv_mean",
 }
 
 

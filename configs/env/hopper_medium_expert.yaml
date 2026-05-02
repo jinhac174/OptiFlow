@@ -1,5 +1,0 @@
-name: hopper_medium_expert
-env_name: hopper-medium-expert-v2
-frame_stack: null
-action_clip_eps: 1.0e-5
-antmaze_reward_mode: null

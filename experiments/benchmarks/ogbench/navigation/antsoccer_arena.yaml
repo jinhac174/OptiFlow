@@ -1,0 +1,41 @@
+name: fpot_ogbench_antsoccer_arena
+description: FPOT on OGBench antsoccer-arena-navigate, tasks 1-5, seeds 1-8 (gamma=0.995)
+env_set: ogbench
+wandb_project: fpot_ogbench_antsoccer_arena
+
+sweep:
+  env.env_name:
+    - antsoccer-arena-navigate-singletask-task1-v0
+    - antsoccer-arena-navigate-singletask-task2-v0
+    - antsoccer-arena-navigate-singletask-task3-v0
+    - antsoccer-arena-navigate-singletask-task4-v0
+    - antsoccer-arena-navigate-singletask-task5-v0
+  seed: [1, 2, 3, 4, 5, 6, 7, 8]
+
+fixed:
+  env: ogbench_state
+  agent: fpot
+  agent.w_temperature: 1.0
+  agent.eta_temperature: 0.01
+  agent.q_agg: mean
+  agent.use_vabc_td_target: false
+  agent.discount: 0.995
+  train.max_steps: 1000000
+  train.eval_interval: 20000
+
+slurm:
+  time: "72:00:00"
+  mem: "64G"
+  cpus_per_task: 20
+  qos: big_qos
+  partitions:
+    - base_suma_rtx3090
+    - big_suma_rtx3090
+    - dell_rtx3090
+    - suma_rtx4090
+    - suma_a6000
+    - gigabyte_a6000
+    - gigabyte_a5000
+    - asus_6000ada
+    - asus_a5000
+    - tyan_a6000

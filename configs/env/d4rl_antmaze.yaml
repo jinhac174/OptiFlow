@@ -1,0 +1,8 @@
+# Base config for D4RL AntMaze.
+# antmaze_reward_mode=minus_one shifts {0, 1} success rewards to {-1, 0},
+# matching the convention in prior offline-RL work on AntMaze.
+name: d4rl_antmaze
+env_name: ???
+frame_stack: null
+action_clip_eps: 1.0e-5
+antmaze_reward_mode: minus_one

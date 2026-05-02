@@ -1,6 +1,6 @@
 defaults:
   - agent: fpot
-  - env: hopper_medium
+  - env: ogbench_state
   - train: offline
   - eval: default
   - logging: default

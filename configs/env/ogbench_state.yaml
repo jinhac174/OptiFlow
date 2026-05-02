@@ -1,0 +1,7 @@
+# Base config for state-based OGBench tasks.
+# Override env_name from the experiment yaml (e.g. cube-single-play-singletask-task1-v0).
+name: ogbench_state
+env_name: ???
+frame_stack: null
+action_clip_eps: 1.0e-5
+antmaze_reward_mode: null

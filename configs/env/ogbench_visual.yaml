@@ -1,0 +1,7 @@
+# Base config for pixel OGBench tasks.
+# Visual tasks are 3-frame stacked.
+name: ogbench_visual
+env_name: ???
+frame_stack: 3
+action_clip_eps: 1.0e-5
+antmaze_reward_mode: null

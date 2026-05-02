@@ -1,5 +1,0 @@
-name: visual_scene_play
-env_name: visual-scene-play-singletask-task2-v0
-frame_stack: 3
-action_clip_eps: 1.0e-5
-antmaze_reward_mode: null

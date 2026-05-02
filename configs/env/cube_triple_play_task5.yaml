@@ -1,5 +1,0 @@
-name: cube_triple_play
-env_name: cube-triple-play-singletask-task5-v0
-frame_stack: null
-action_clip_eps: 1.0e-5
-antmaze_reward_mode: null

@@ -1,5 +1,0 @@
-name: walker2d_medium_replay
-env_name: walker2d-medium-replay-v2
-frame_stack: null
-action_clip_eps: 1.0e-5
-antmaze_reward_mode: null
