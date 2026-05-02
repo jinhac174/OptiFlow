@@ -43,7 +43,7 @@ for spec in "${JOBS[@]}"; do
   gpu=$((i % NUM_GPUS))
   name=$(basename "$yaml" .yaml)
   echo "[$(date +%H:%M:%S)] launch yaml=$name idx=$idx gpu=$gpu"
-  CUDA_VISIBLE_DEVICES=$gpu python scripts/sweep_runner.py run --sweep "$yaml" --idx "$idx" logging.save_csv=false logging.save_config=false logging.save_checkpoint=false >/dev/null 2>&1 &
+  CUDA_VISIBLE_DEVICES=$gpu python scripts/sweep_runner.py run --sweep "$yaml" --idx "$idx" --override logging.save_csv=false --override logging.save_config=false --override logging.save_checkpoint=false >/dev/null 2>&1 &
   PIDS+=($!)
   sleep 2
   i=$((i+1))
