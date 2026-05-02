@@ -142,6 +142,18 @@ class CsvLogger:
                 w.writerow({k: r.get(k, "") for k in self.header})
 
 
+class NullLogger:
+    """No-op stand-in for CsvLogger when logging.save_csv=false."""
+    def log(self, data: Dict, step: int):
+        pass
+
+
+def make_logger(cfg: DictConfig, run_dir: Path):
+    if bool(cfg.logging.get("save_csv", True)):
+        return CsvLogger(run_dir / "metrics.csv")
+    return NullLogger()
+
+
 def write_json(path: Path, payload):
     with open(path, "w") as f:
         json.dump(json_safe(payload), f, indent=2, sort_keys=True)
@@ -542,7 +554,7 @@ def offline_train(cfg: DictConfig, run_dir: Path):
         config=build_agent_config(cfg),
     )
 
-    csv_logger = CsvLogger(run_dir / "metrics.csv")
+    csv_logger = make_logger(cfg, run_dir)
     best_score = -np.inf
     max_steps     = int(cfg.train.max_steps)
     batch_size    = int(cfg.train.batch_size)
@@ -622,7 +634,7 @@ def online_train(cfg: DictConfig, run_dir: Path):
         action_dim=action_dim,
     )
 
-    csv_logger = CsvLogger(run_dir / "metrics.csv")
+    csv_logger = make_logger(cfg, run_dir)
     best_score = -np.inf
     max_steps      = int(cfg.train.max_steps)
     batch_size     = int(cfg.train.batch_size)
@@ -744,7 +756,7 @@ def offline_to_online_train(cfg: DictConfig, run_dir: Path):
         config=build_agent_config(cfg),
     )
 
-    csv_logger = CsvLogger(run_dir / "metrics.csv")
+    csv_logger = make_logger(cfg, run_dir)
     best_score = -np.inf
     batch_size     = int(cfg.train.batch_size)
     log_interval   = int(cfg.train.log_interval)
@@ -940,7 +952,8 @@ def main(cfg: DictConfig):
     set_global_seed(int(cfg.seed))
 
     run_dir = ensure_run_dir(cfg)
-    save_resolved_config(cfg, run_dir)
+    if bool(cfg.logging.get("save_config", True)):
+        save_resolved_config(cfg, run_dir)
     maybe_init_wandb(cfg, run_dir)
 
     if cfg.train.mode == "offline":

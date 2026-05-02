@@ -101,7 +101,7 @@ def resolve_overrides(cfg: dict, idx: int) -> list[str]:
     return overrides
 
 
-def build_command(cfg: dict, idx: int) -> list[str]:
+def build_command(cfg: dict, idx: int, extra_overrides=None) -> list[str]:
     """Build the full argv list for one job (does NOT include 'python')."""
     overrides = resolve_overrides(cfg, idx)
 
@@ -117,6 +117,10 @@ def build_command(cfg: dict, idx: int) -> list[str]:
     fixed_keys = list((cfg.get("fixed") or {}).keys())
     if fixed_keys:
         overrides.append("+logging.fixed_keys=[" + ",".join(fixed_keys) + "]")
+
+    # Append any --override key=value pairs (applied last → highest priority)
+    if extra_overrides:
+        overrides.extend(extra_overrides)
 
     # Hydra needs the script path; we invoke scripts/train.py from repo root
     cmd = [sys.executable, "scripts/train.py"] + overrides
@@ -134,7 +138,7 @@ def cmd_count(args):
 
 def cmd_run(args):
     cfg = load_sweep(args.sweep)
-    cmd = build_command(cfg, args.idx)
+    cmd = build_command(cfg, args.idx, extra_overrides=args.override)
     print(" ".join(cmd))
     if not args.dry_run:
         os.execv(sys.executable, cmd)
@@ -153,6 +157,9 @@ def main():
     p_run.add_argument("--idx", required=True, type=int, help="Array task index")
     p_run.add_argument("--dry-run", action="store_true",
                        help="Print resolved command without executing")
+    p_run.add_argument("--override", action="append", default=[],
+                       help="Extra Hydra override appended to the command "
+                            "(repeatable, e.g. --override logging.save_csv=false)")
 
     args = parser.parse_args()
     if args.command == "count":
