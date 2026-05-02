@@ -50,8 +50,8 @@ scripts/
   submit.sh                 # Submit a sweep as a Slurm array
   run_local_sweep.sh        # Round-robin a sweep across local GPUs (no Slurm)
   launch_smoke.sh           # Compact multi-yaml multi-GPU launcher
-  train_fpot_online.py      # Standalone offline-to-online runner
-slurm/                      # Slurm runner shells
+  check_sweep_status.sh     # Tally done / running / crashed / missing for a sweep
+slurm/                      # Slurm runner shells (d4rl_array.sh, ogbench_array.sh)
 requirements/               # Pinned dependency lists
 ```
 
