@@ -1,7 +1,7 @@
 name: fpot_ogbench_humanoidmaze_large
 description: FPOT on OGBench humanoidmaze-large-navigate, tasks 1-5, seeds 1-8 (gamma=0.999)
 env_set: ogbench
-wandb_project: fpot_ogbench_humanoidmaze_large
+wandb_project: fpot_ogbench_benchmark
 
 sweep:
   env.env_name:

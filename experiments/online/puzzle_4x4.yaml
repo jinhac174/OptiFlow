@@ -1,7 +1,7 @@
 name: fpot_online_puzzle_4x4
 description: Offline-to-online FPOT on puzzle-4x4-play-task1 (1M+1M, seeds 1-8)
 env_set: ogbench
-wandb_project: fpot_online_puzzle_4x4
+wandb_project: fpot_online
 
 sweep:
   seed: [1, 2, 3, 4, 5, 6, 7, 8]

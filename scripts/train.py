@@ -19,6 +19,7 @@ import csv
 import json
 import os
 import random
+import re
 from typing import Any, Dict
 
 import hydra
@@ -292,6 +293,27 @@ def ensure_run_dir(cfg: DictConfig) -> Path:
     raise RuntimeError("Set logging.overwrite=true or logging.auto_increment=true")
 
 
+_TASK_RE = re.compile(r'^(.+)-singletask-task(\d+)$')
+
+
+def _clean_task_name(env_name: str) -> tuple[str, str]:
+    """Convert raw env_name string to (clean_task, family) for naming/tagging.
+
+    Examples:
+        cube-single-play-singletask-task1-v0 -> ('cube_single_play_t1', 'cube_single_play')
+        antmaze-large-navigate-singletask-task3-v0 -> ('antmaze_large_navigate_t3', 'antmaze_large_navigate')
+        antmaze-umaze-v2  -> ('antmaze_umaze', 'antmaze_umaze')
+        door-cloned-v1    -> ('door_cloned', 'door_cloned')
+    """
+    s = re.sub(r'-v\d+$', '', env_name)
+    m = _TASK_RE.match(s)
+    if m:
+        family = m.group(1).replace('-', '_')
+        return f"{family}_t{m.group(2)}", family
+    family = s.replace('-', '_')
+    return family, family
+
+
 def maybe_init_wandb(cfg: DictConfig, run_dir: Path):
     if wandb is None:
         return
@@ -299,73 +321,87 @@ def maybe_init_wandb(cfg: DictConfig, run_dir: Path):
     if mode == "disabled":
         return
 
-    import re
-
-    # --- resolve Hydra task overrides ---
+    # --- resolve Hydra task overrides (for sweep_name, exp tag, swept axes) ---
     try:
         from hydra.core.hydra_config import HydraConfig
         overrides = list(HydraConfig.get().overrides.task)
     except Exception:
         overrides = []
 
-    env_name, seed_str, exp_tag, ablation_parts = _parse_overrides(overrides)
-    if env_name is None:
-        env_name = cfg.env.name
+    _, seed_str, exp_tag, ablation_parts = _parse_overrides(overrides)
     if seed_str is None:
         seed_str = str(cfg.seed)
 
-    # --- extract task number from the env override string (e.g. cube_single_play_task2 → 2) ---
-    task_num = None
-    m = re.search(r'_task(\d+)$', env_name)
-    if m:
-        task_num = m.group(1)
+    # --- task name from cfg.env.env_name (the actual env id, not config-group) ---
+    raw_env = str(cfg.env.env_name)
+    clean_task, family = _clean_task_name(raw_env)
 
-    # --- normalize w_temperature / eta_temperature keys in swept ablation_parts ---
-    _KEY_REMAP = {"w_temperature": "wt", "eta_temperature": "eta"}
+    # --- normalize swept-axis keys for short, readable names ---
+    _KEY_REMAP = {
+        "w_temperature": "wt",
+        "eta_temperature": "eta",
+        "n_student": "N",
+        "n_teacher": "M",
+        "use_vabc_td_target": "vabc",
+        "lambda_q": "lq",
+    }
     ablation_parts = [(_KEY_REMAP.get(k, k), v) for k, v in ablation_parts]
-
-    # --- inject wt / eta from cfg.agent when not already present (even if in fixed_keys) ---
-    ablation_keys = {k for k, _ in ablation_parts}
-    injected = []
-    wt_val = cfg.agent.get("w_temperature", None)
-    if wt_val is not None and "wt" not in ablation_keys:
-        injected.append(("wt", _format_value(float(wt_val))))
-    eta_val = cfg.agent.get("eta_temperature", None)
-    if eta_val is not None and "eta" not in ablation_keys:
-        injected.append(("eta", _format_value(float(eta_val))))
-    ablation_parts = injected + ablation_parts
-
-    # --- build name / group (no env prefix; project carries the env) ---
     ablation_summary = " ".join(f"{k}={v}" for k, v in ablation_parts)
 
-    # If running offline_to_online, prepend O2O marker to name + group
+    # --- offline-to-online prefix ---
     is_o2o = (cfg.train.get("mode", "offline") == "offline_to_online")
     o2o_prefix = "O2O | " if is_o2o else ""
-    if task_num is not None:
-        task_prefix = f"t{task_num}"
-        if ablation_summary:
-            wandb_name  = f"{o2o_prefix}{task_prefix} | {ablation_summary} | s{seed_str}"
-            wandb_group = f"{o2o_prefix}{task_prefix} | {ablation_summary}"
-        else:
-            wandb_name  = f"{o2o_prefix}{task_prefix} | s{seed_str}"
-            wandb_group = f"{o2o_prefix}{task_prefix}"
-    else:
-        if ablation_summary:
-            wandb_name  = f"{o2o_prefix}{ablation_summary} | s{seed_str}"
-            wandb_group = f"{o2o_prefix}{ablation_summary}"
-        else:
-            wandb_name  = f"{o2o_prefix}s{seed_str}"
-            wandb_group = f"{o2o_prefix}base"
+
+    # --- run name / group ---
+    name_parts = [clean_task]
+    if ablation_summary:
+        name_parts.append(ablation_summary)
+    name_parts.append(f"s{seed_str}")
+    wandb_name = o2o_prefix + " | ".join(name_parts)
+
+    group_parts = [clean_task]
+    if ablation_summary:
+        group_parts.append(ablation_summary)
+    wandb_group = o2o_prefix + " | ".join(group_parts)
 
     wandb_job_type = cfg.agent.name
 
-    # --- build tags (env tag dropped; redundant with project) ---
+    # --- tags: facets for searching/filtering on wandb ---
+    def _tag_val(v):
+        if isinstance(v, bool):
+            return str(v).lower()
+        if isinstance(v, float):
+            return _format_value(v)
+        return str(v)
+
     tags = [
-        f"agent:{cfg.agent.name}",
+        f"task:{clean_task}",
+        f"family:{family}",
         f"seed:{seed_str}",
+        f"agent:{cfg.agent.name}",
+        f"env_set:{cfg.env.name}",
     ]
+    # Always-relevant agent hyperparams (whether swept or fixed)
+    for cfg_key, tag_key in [
+        ("w_temperature",        "wt"),
+        ("eta_temperature",      "eta"),
+        ("use_vabc_td_target",   "vabc"),
+        ("q_agg",                "q_agg"),
+        ("discount",             "discount"),
+        ("lambda_q",             "lq"),
+        ("n_student",            "N"),
+        ("n_teacher",            "M"),
+    ]:
+        v = cfg.agent.get(cfg_key, None)
+        if v is not None:
+            tags.append(f"{tag_key}:{_tag_val(v)}")
+
+    # Any other swept axes that aren't in the canonical list above
+    seen_keys = {t.split(":", 1)[0] for t in tags}
     for short_key, value in ablation_parts:
-        tags.append(f"{short_key}:{value}")
+        if short_key not in seen_keys:
+            tags.append(f"{short_key}:{value}")
+
     if exp_tag is not None:
         tags.append(f"exp:{exp_tag}")
     extra_tags = cfg.logging.get("wandb_tags", []) or []
@@ -375,8 +411,8 @@ def maybe_init_wandb(cfg: DictConfig, run_dir: Path):
     if is_o2o:
         tags.append("off2on")
 
-    # --- project: cfg.logging.wandb_project if set, else cfg.env.name ---
-    project = cfg.logging.get("wandb_project", None) or cfg.env.name
+    # --- project: cfg.logging.wandb_project (set per-yaml) ---
+    project = cfg.logging.get("wandb_project", None) or "fpot"
     if cfg.logging.get("wandb_project_append_date", False):
         date_fmt = str(cfg.logging.get("wandb_project_date_format", "%Y%m%d"))
         project = f"{project}_{datetime.now().strftime(date_fmt)}"

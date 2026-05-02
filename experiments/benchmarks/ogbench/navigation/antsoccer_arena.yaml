@@ -1,7 +1,7 @@
 name: fpot_ogbench_antsoccer_arena
 description: FPOT on OGBench antsoccer-arena-navigate, tasks 1-5, seeds 1-8 (gamma=0.995)
 env_set: ogbench
-wandb_project: fpot_ogbench_antsoccer_arena
+wandb_project: fpot_ogbench_benchmark
 
 sweep:
   env.env_name:

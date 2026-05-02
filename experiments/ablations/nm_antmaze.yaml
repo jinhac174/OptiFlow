@@ -1,7 +1,7 @@
 name: fpot_ablation_nm_antmaze
 description: N x M ablation on antmaze-large-navigate-task1 (4 N x 4 M x 8 seeds = 128 jobs)
 env_set: ogbench
-wandb_project: fpot_ablation_nm_antmaze
+wandb_project: fpot_ablation_nm
 
 sweep:
   agent.n_teacher: [4, 16, 64, 256]

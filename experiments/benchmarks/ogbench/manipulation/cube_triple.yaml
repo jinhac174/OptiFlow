@@ -1,7 +1,7 @@
 name: fpot_ogbench_cube_triple
 description: FPOT on OGBench cube-triple-play, tasks 1-5, seeds 1-8 (VaBC TD)
 env_set: ogbench
-wandb_project: fpot_ogbench_cube_triple
+wandb_project: fpot_ogbench_benchmark
 
 sweep:
   env.env_name:

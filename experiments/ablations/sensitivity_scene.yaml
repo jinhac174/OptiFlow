@@ -1,7 +1,7 @@
 name: fpot_ablation_sensitivity_scene
 description: Sensitivity tau* x eta* on scene-play-task2 (3 x 3 x 8 seeds = 72 jobs)
 env_set: ogbench
-wandb_project: fpot_ablation_sensitivity_scene
+wandb_project: fpot_ablation_sensitivity
 
 sweep:
   agent.w_temperature: [0.5, 1, 2]

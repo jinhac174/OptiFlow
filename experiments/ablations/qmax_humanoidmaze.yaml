@@ -1,7 +1,7 @@
 name: fpot_ablation_qmax_humanoidmaze
 description: lambda_q ablation on humanoidmaze-medium-task1 (4 x 8 seeds = 32 jobs)
 env_set: ogbench
-wandb_project: fpot_ablation_qmax_humanoidmaze
+wandb_project: fpot_ablation_qmax
 
 sweep:
   agent.lambda_q: [0.0, 0.1, 1.0, 3.0]

@@ -1,7 +1,7 @@
 name: fpot_ogbench_puzzle_4x4
 description: FPOT on OGBench puzzle-4x4-play, tasks 1-5, seeds 1-8
 env_set: ogbench
-wandb_project: fpot_ogbench_puzzle_4x4
+wandb_project: fpot_ogbench_benchmark
 
 sweep:
   env.env_name:

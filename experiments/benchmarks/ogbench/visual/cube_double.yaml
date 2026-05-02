@@ -1,7 +1,7 @@
 name: fpot_ogbench_visual_cube_double
 description: FPOT on visual OGBench cube-double-play task1, seeds 1-4, 500K steps
 env_set: ogbench
-wandb_project: fpot_ogbench_visual_cube_double
+wandb_project: fpot_ogbench_benchmark
 
 sweep:
   env.env_name:
