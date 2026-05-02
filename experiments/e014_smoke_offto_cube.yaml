@@ -1,0 +1,50 @@
+name: e014_smoke_offto_cube
+description: Smoke test — FPOT offline-to-online, cube_double_play_task2, 1 seed, short
+env_set: ogbench
+wandb_project: flowrl-ogbench-off2on-smoke
+
+sweep:
+  seed: [1]
+
+fixed:
+  env: cube_double_play_task2
+  agent.agent_file: agent_online
+  agent.q_agg: mean
+  agent.use_vabc_td_target: false
+  agent.w_temperature: 2.0
+  agent.eta_temperature: 1e-2
+  agent.n_student: 16
+  agent.n_teacher: 64
+  train: offline_to_online
+  train.offline_max_steps: 10000
+  train.online_max_steps:  10000
+  train.max_steps:         20000
+  train.batch_size: 256
+  train.eval_interval: 2500
+  train.log_interval:  1000
+  train.save_interval: 100000
+  train.num_collection_envs: 8
+  train.replay_buffer_capacity: 200000
+  train.warmup_random_steps: 1000
+  train.start_training_step: 1000
+  train.utd_ratio: 1
+  train.seed_replay_with_offline: true
+  eval.num_eval_episodes: 10
+  logging.save_checkpoint: false
+
+slurm:
+  time: "00:30:00"
+  mem: "16G"
+  cpus_per_task: 4
+  qos: big_qos
+  partitions:
+    - big_suma_rtx3090
+    - base_suma_rtx3090
+    - dell_rtx3090
+    - suma_rtx4090
+    - suma_a6000
+    - gigabyte_a6000
+    - gigabyte_a5000
+    - asus_6000ada
+    - tyan_a6000
+    - asus_a5000

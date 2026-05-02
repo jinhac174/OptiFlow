@@ -1,0 +1,5 @@
+name: cube_single_play
+env_name: cube-single-play-singletask-task4-v0
+frame_stack: null
+action_clip_eps: 1.0e-5
+antmaze_reward_mode: null

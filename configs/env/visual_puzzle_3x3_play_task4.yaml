@@ -1,0 +1,5 @@
+name: visual_puzzle_3x3_play
+env_name: visual-puzzle-3x3-play-singletask-task4-v0
+frame_stack: 3
+action_clip_eps: 1.0e-5
+antmaze_reward_mode: null

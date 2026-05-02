@@ -1,0 +1,5 @@
+name: antmaze_medium_diverse
+env_name: antmaze-medium-diverse-v2
+frame_stack: null
+action_clip_eps: 1.0e-5
+antmaze_reward_mode: minus_one

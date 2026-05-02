@@ -1,0 +1,12 @@
+root_dir: /home/danielc174/projects/FPOT/outputs
+
+overwrite: false
+auto_increment: true
+run_prefix: run
+
+wandb_mode: online
+wandb_entity: null
+
+save_config: true
+save_csv: true
+save_checkpoint: false

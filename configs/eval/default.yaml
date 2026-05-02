@@ -1,0 +1,6 @@
+num_eval_episodes: 100
+fixed_eval_actor_seed: 0
+
+num_video_episodes: 0
+video_frame_skip: 3
+progress: false

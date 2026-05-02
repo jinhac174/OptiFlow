@@ -1,0 +1,5 @@
+name: humanoidmaze_large_navigate
+env_name: humanoidmaze-large-navigate-singletask-task5-v0
+frame_stack: null
+action_clip_eps: 1.0e-5
+antmaze_reward_mode: null

@@ -1,0 +1,50 @@
+name: e014_offto_cube_double
+description: FPOT offline-to-online (0-1M offline, 1M-2M online) on cube_double_play_task2, 8 seeds
+env_set: ogbench
+wandb_project: flowrl-ogbench-off2on
+
+sweep:
+  seed: [1, 2, 3, 4, 5, 6, 7, 8]
+
+fixed:
+  env: cube_double_play_task2
+  agent.agent_file: agent_online
+  agent.q_agg: mean
+  agent.use_vabc_td_target: true
+  agent.w_temperature: 2.0
+  agent.eta_temperature: 1e-2
+  agent.n_student: 16
+  agent.n_teacher: 64
+  train: offline_to_online
+  train.offline_max_steps: 1000000
+  train.online_max_steps:  1000000
+  train.max_steps:         2000000
+  train.batch_size: 256
+  train.eval_interval: 200000
+  train.log_interval:   5000
+  train.save_interval: 100000
+  train.num_collection_envs: 8
+  train.replay_buffer_capacity: 1000000
+  train.warmup_random_steps: 5000
+  train.start_training_step: 5000
+  train.utd_ratio: 1
+  train.seed_replay_with_offline: true
+  eval.num_eval_episodes: 100
+  logging.save_checkpoint: false
+
+slurm:
+  time: "72:00:00"
+  mem: "32G"
+  cpus_per_task: 4
+  qos: big_qos
+  partitions:
+    - big_suma_rtx3090
+    - base_suma_rtx3090
+    - dell_rtx3090
+    - suma_rtx4090
+    - suma_a6000
+    - gigabyte_a6000
+    - gigabyte_a5000
+    - asus_6000ada
+    - tyan_a6000
+    - asus_a5000

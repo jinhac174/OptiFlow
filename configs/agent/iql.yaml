@@ -1,0 +1,27 @@
+name: iql
+agent_file: iql
+
+lr: 3.0e-4
+discount: 0.99
+tau: 0.005
+max_grad_norm: 100.0
+
+actor_hidden_dims: [256, 256]
+value_hidden_dims: [256, 256]
+layer_norm: false
+encoder: null
+
+# IQL-specific --------------------------------------------------------
+# Expectile τ: higher values push V closer to max Q, more optimistic.
+# Typical range: 0.5 (symmetric MSE) to 0.99.  Paper uses 0.7 for
+# locomotion, 0.9 for antmaze.
+expectile: 0.7
+
+# AWR inverse temperature β: larger values → sharper advantage weighting.
+# Too large causes instability; too small reduces policy improvement.
+temperature: 3.0
+
+# Actor architecture
+state_dependent_std: true
+log_std_min: -5.0
+log_std_max: 2.0

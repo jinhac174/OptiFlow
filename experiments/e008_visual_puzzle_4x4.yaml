@@ -1,0 +1,26 @@
+name: e008_visual_puzzle_4x4
+description: visual puzzle_4x4_play task1, fpot + impala_small
+env_set: ogbench
+sweep:
+  env: [visual_puzzle_4x4_play_task1]
+  seed: [2, 4, 6, 8]
+fixed:
+  agent.agent_file: agent_fpot
+  agent.encoder: impala_small
+  agent.n_teacher: 32
+  agent.w_temperature: 2.0
+  agent.eta_temperature: 0.1
+  agent.q_agg: mean
+  agent.use_vabc_td_target: true
+  train.max_steps: 500000
+  train.batch_size: 256
+  train.eval_interval: 20000
+  logging.save_checkpoint: false
+  eval.num_eval_episodes: 100
+slurm:
+  time: "48:00:00"
+  mem: "32G"
+  cpus_per_task: 4
+  partitions:
+    - base_suma_rtx3090
+    - suma_rtx4090

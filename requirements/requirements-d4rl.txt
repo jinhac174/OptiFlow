@@ -1,0 +1,21 @@
+# D4RL stack tested in this repo on Python 3.10.
+# Intended for antmaze, maze2d, and Adroit-style D4RL tasks.
+# Host driver on the test machine reported CUDA 13.0, while JAX used cuda12 wheels.
+
+numpy<2
+jax[cuda12]==0.6.2
+flax==0.10.2
+optax==0.2.5
+distrax==0.1.5
+ml-collections==1.1.0
+absl-py==2.4.0
+pillow==12.1.1
+tqdm==4.67.3
+wandb==0.25.1
+gymnasium==1.0.0
+h5py==3.16.0
+mujoco==3.3.7
+gym==0.23.1
+shimmy[gym-v21]
+Cython<3
+d4rl @ git+https://github.com/Farama-Foundation/d4rl@master

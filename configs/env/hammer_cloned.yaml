@@ -1,0 +1,5 @@
+name: hammer_cloned
+env_name: hammer-cloned-v1
+frame_stack: null
+action_clip_eps: 1.0e-5
+antmaze_reward_mode: null

@@ -1,0 +1,15 @@
+defaults:
+  - agent: fpot
+  - env: hopper_medium
+  - train: offline
+  - eval: default
+  - logging: default
+  - _self_
+
+seed: 0
+experiment_name: offline_base
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null

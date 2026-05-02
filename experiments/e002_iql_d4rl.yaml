@@ -1,0 +1,38 @@
+name: e002_iql_d4rl
+description: IQL baseline on D4RL locomotion — expectile × temperature sweep (offline)
+env_set: d4rl
+wandb_project: flowrl-d4rl
+
+# 9 envs × 2 expectile × 2 temperature × 2 seeds = 72 jobs
+sweep:
+  env:
+    - hopper_medium
+    - hopper_medium_replay
+    - hopper_medium_expert
+    - halfcheetah_medium
+    - halfcheetah_medium_replay
+    - halfcheetah_medium_expert
+    - walker2d_medium
+    - walker2d_medium_replay
+    - walker2d_medium_expert
+  agent.expectile: [0.7, 0.9]
+  agent.temperature: [3.0, 10.0]
+  seed: [2, 4]
+
+fixed:
+  agent.agent_file: iql
+
+slurm:
+  time: "24:00:00"
+  mem: "16G"
+  cpus_per_task: 4
+  partitions:
+    - big_suma_rtx3090
+    - base_suma_rtx3090
+    - suma_rtx4090
+  qos: big_qos
+  exclude:
+    - node04
+    - node08
+    - node18
+    - node31

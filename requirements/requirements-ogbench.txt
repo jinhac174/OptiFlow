@@ -1,0 +1,20 @@
+# OGBench / latest JAX stack.
+
+jax[cuda13]==0.9.1
+flax==0.12.5
+optax==0.2.6
+ml-collections==1.1.0
+distrax==0.1.7
+absl-py==2.4.0
+numpy==2.4.3
+pillow==12.1.1
+tqdm==4.67.3
+wandb==0.25.1
+
+ogbench==1.2.1
+gymnasium-robotics==1.4.2
+pyarrow==23.0.1
+h5py==3.16.0
+
+# Keep OGBench and dm_control on their currently compatible MuJoCo release.
+mujoco==3.6.0

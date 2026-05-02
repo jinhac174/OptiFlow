@@ -1,0 +1,5 @@
+name: cube_double_noisy
+env_name: cube-double-noisy-singletask-task1-v0
+frame_stack: null
+action_clip_eps: 1.0e-5
+antmaze_reward_mode: null

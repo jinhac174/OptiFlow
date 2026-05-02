@@ -1,0 +1,24 @@
+outputs/
+wandb/
+*.pt
+*.pth
+*.ckpt
+*.npz
+*.npy
+*.pkl
+logs/
+slurm/logs/
+train.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Editor / OS
+.DS_Store
+*.bak
+*.swp
+
+# Paper draft (unpublished)
+paper.txt

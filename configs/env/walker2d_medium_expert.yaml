@@ -1,0 +1,5 @@
+name: walker2d_medium_expert
+env_name: walker2d-medium-expert-v2
+frame_stack: null
+action_clip_eps: 1.0e-5
+antmaze_reward_mode: null

@@ -1,0 +1,48 @@
+name: fpot
+agent_file: agent_fpot
+
+lr: 3.0e-4
+discount: 0.99
+tau: 0.005
+max_grad_norm: 100.0
+
+actor_hidden_dims: [512, 512, 512, 512]
+value_hidden_dims: [512, 512, 512, 512]
+layer_norm: true
+actor_layer_norm: false
+encoder: null
+# Image augmentation probability (applied when encoder is set).
+p_aug: 0.5
+
+q_agg: mean
+
+# ---- Transport (Sec. 4 / App. C) ---------------------------------------
+# n_student = N (one-step samples per state); n_teacher = M (reference samples).
+# w_temperature = tau in q_j = softmax(Q(s, a_j) / tau) (reference-policy marginal).
+n_student: 16
+n_teacher: 64
+w_temperature: 1.5
+sinkhorn_eps: 0.05
+sinkhorn_iters: 30
+
+# ---- Reference flow policy (VaBC) --------------------------------------
+flow_steps: 10
+# eta_temperature = eta in g_eta(s, a, z) = softmax([lambda * Q(s,a), lambda * Q(s, mu_theta(s,z))] / eta).
+eta_temperature: 0.1
+
+# ---- Loss weights ------------------------------------------------------
+lambda_vbc: 1.0      # value-aware reference flow matching
+lambda_distill: 1.0  # transport-guided one-step distillation
+lambda_q: 0.0        # ablation only (direct Q-max on the deployed one-step policy)
+
+# ---- One-step head -----------------------------------------------------
+one_step_tanh_squash: false
+one_step_fc_scale: 1.0e-2
+
+# ---- Online fine-tuning ------------------------------------------------
+exploration_noise_std: 0.0
+exploration_noise_clip: 0.0
+
+# ---- TD target ---------------------------------------------------------
+# When true, use the VaBC TD target y^VaBC = r + (gamma/2)[Q(s', mu_theta) + Q(s', mu_omega)].
+use_vabc_td_target: false
