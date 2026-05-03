@@ -1,6 +1,5 @@
 name: fpot_online_antsoccer_arena
 description: Offline-to-online FPOT on antsoccer-arena-navigate-task1 (1M+1M, seeds 1-8)
-env_set: ogbench
 wandb_project: fpot_online
 
 sweep:
@@ -19,20 +18,3 @@ fixed:
   train.offline_max_steps: 1000000
   train.online_max_steps: 1000000
   train.eval_interval: 50000
-
-slurm:
-  time: "72:00:00"
-  mem: "64G"
-  cpus_per_task: 20
-  qos: big_qos
-  partitions:
-    - base_suma_rtx3090
-    - big_suma_rtx3090
-    - dell_rtx3090
-    - suma_rtx4090
-    - suma_a6000
-    - gigabyte_a6000
-    - gigabyte_a5000
-    - asus_6000ada
-    - asus_a5000
-    - tyan_a6000

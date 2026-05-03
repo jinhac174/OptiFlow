@@ -1,9 +1,9 @@
 # Experiments
 
-Each `*.yaml` here is a single sweep specification: it lists the Cartesian product
-of overrides to run, plus the Slurm submission settings. The submission script
-`scripts/submit.sh` reads one such yaml and submits a Slurm array job whose size
-equals the product of the `sweep:` axes.
+Each `*.yaml` in this directory is a single sweep specification. It declares
+the Cartesian product of overrides to run (`sweep:`) and a set of overrides
+applied to every job (`fixed:`). One yaml = one logical experiment in the
+paper.
 
 ## Layout
 
@@ -26,69 +26,64 @@ experiments/
 
 ## Hyperparameter source
 
-Every sweep encodes the hyperparameters from the paper:
+| Source                                | Defaults                                                                                                                                                                       |
+|---------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Table 2 (`tab:FPOT_shared_hparams`)   | MLP `[512]×4`, GeLU, LayerNorm critic only, Adam lr=3e-4, target τ=5e-3, batch=256, K=10 Euler steps, N=16 student / M=64 teacher, 30 Sinkhorn iters, ε=0.05, γ=0.99 default. |
+| Table 3 (`tab:FPOT_hparams_override`) | Per-task discount γ and TD target (`y^VaBC`) overrides — encoded in each yaml's `fixed:` block.                                                                                |
+| Table 4 (`tab:hparams_ogbench`)       | Per-task FPOT (τ, η) for OGBench — encoded as `agent.w_temperature` and `agent.eta_temperature`.                                                                              |
+| Table 5 (`tab:hparams_d4rl`)          | Per-task FPOT (τ, η) for D4RL — encoded per-yaml.                                                                                                                              |
 
-| Source                                            | Defaults                                                                                                                                                                       |
-|---------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Table 2 (`tab:FPOT_shared_hparams`)               | MLP `[512]×4`, GeLU, LayerNorm critic only, Adam lr=3e-4, target τ=5e-3, batch=256, K=10 Euler steps, N=16 student / M=64 teacher, 30 Sinkhorn iters, ε=0.05, γ=0.99 default. |
-| Table 3 (`tab:FPOT_hparams_override`)             | Per-task discount γ and TD target (`y^VaBC`) overrides — encoded in each yaml's `fixed:` block.                                                                                |
-| Table 4 (`tab:hparams_ogbench`)                   | Per-task FPOT (τ, η) for OGBench — encoded as `agent.w_temperature` and `agent.eta_temperature`.                                                                              |
-| Table 5 (`tab:hparams_d4rl`)                      | Per-task FPOT (τ, η) for D4RL — encoded per-yaml.                                                                                                                              |
-
-The `agent` config group (`configs/agent/fpot.yaml`) provides the Table-2 shared
-defaults; each sweep yaml overrides only the per-task fields from Tables 3–5.
+The `agent` config group ([`configs/agent/fpot.yaml`](../configs/agent/fpot.yaml))
+provides the Table 2 shared defaults; each sweep yaml overrides only the
+per-task fields from Tables 3–5.
 
 ## Running a sweep
 
 ```bash
-# 1. Inspect what the array will run
+# Inspect (no execution)
 python scripts/sweep_runner.py count --sweep experiments/benchmarks/ogbench/manipulation/cube_single.yaml
 python scripts/sweep_runner.py run   --sweep experiments/benchmarks/ogbench/manipulation/cube_single.yaml --idx 0 --dry-run
 
-# 2. Submit the full sweep to Slurm
-bash scripts/submit.sh experiments/benchmarks/ogbench/manipulation/cube_single.yaml
+# Run the entire sweep across local GPUs
+bash scripts/run_sweep.sh experiments/benchmarks/ogbench/manipulation/cube_single.yaml
 ```
 
-`submit.sh` picks the right runner script (`slurm/ogbench_array.sh` or
-`slurm/d4rl_array.sh`) based on the yaml's `env_set:` field.
+See the top-level [`README.md`](../README.md) for full reproduction commands.
 
 ## Sweep yaml schema
 
 ```yaml
-name: <sweep id>                  # becomes the Slurm --job-name and +exp= tag
+name: <sweep id>                  # used in the wandb +exp= tag and per-job log filename
 description: <one-line summary>
-env_set: ogbench | d4rl           # selects the array runner / conda env
 wandb_project: <project name>     # injected as +logging.wandb_project=...
 
 sweep:                            # Cartesian product axes (declaration-order = loop order)
   env.env_name: [...]
-  seed:         [1, 2, 3, 4, 5, 6, 7, 8]
+  seed: [1, 2, 3, 4, 5, 6, 7, 8]
 
 fixed:                            # appended to every job (no product)
   env: ogbench_state              # config-group selection
   agent: fpot
   agent.w_temperature: 2.0
   agent.eta_temperature: 1e-1
+  train: offline                  # or offline_to_online
   ...
-
-slurm:                            # forwarded as sbatch CLI flags
-  time: "72:00:00"
-  mem: "64G"
-  cpus_per_task: 20
-  qos: big_qos
-  partitions: [base_suma_rtx3090, big_suma_rtx3090, ...]
 ```
+
+Sweep job indices iterate the Cartesian product in **declaration order**: the
+first key is the outermost loop (changes slowest), the last key is the
+innermost (changes fastest).
 
 ## Reproducing paper tables
 
-| Paper table                | Yamls to run                                              |
-|----------------------------|-----------------------------------------------------------|
-| Table 1 OGBench Navigation | `benchmarks/ogbench/navigation/*.yaml`                    |
-| Table 1 OGBench Manipulation | `benchmarks/ogbench/manipulation/*.yaml`                 |
-| Table 1 OGBench Visual     | `benchmarks/ogbench/visual/*.yaml`                        |
-| Table 1 D4RL AntMaze       | `benchmarks/d4rl/antmaze/*.yaml`                          |
-| Table 1 D4RL Adroit        | `benchmarks/d4rl/adroit/*.yaml`                           |
-| App. N×M ablation          | `ablations/nm_{cube_double,scene,antmaze}.yaml`           |
-| App. τ × η sensitivity     | `ablations/sensitivity_{cube_double,scene,antmaze}.yaml`  |
-| App. λ_q ablation          | `ablations/qmax_*.yaml`                                   |
-| App. C.2 offline-to-online | `online/*.yaml`                                           |
+| Paper table                  | Yamls to run                                              |
+|------------------------------|-----------------------------------------------------------|
+| Table 1 OGBench Navigation   | `benchmarks/ogbench/navigation/*.yaml`                    |
+| Table 1 OGBench Manipulation | `benchmarks/ogbench/manipulation/*.yaml`                  |
+| Table 1 OGBench Visual       | `benchmarks/ogbench/visual/*.yaml`                        |
+| Table 1 D4RL AntMaze         | `benchmarks/d4rl/antmaze/*.yaml`                          |
+| Table 1 D4RL Adroit          | `benchmarks/d4rl/adroit/*.yaml`                           |
+| App. N×M ablation            | `ablations/nm_{cube_double,scene,antmaze}.yaml`           |
+| App. τ × η sensitivity       | `ablations/sensitivity_{cube_double,scene,antmaze}.yaml`  |
+| App. λ_q ablation            | `ablations/qmax_*.yaml`                                   |
+| App. C.2 offline-to-online   | `online/*.yaml`                                           |

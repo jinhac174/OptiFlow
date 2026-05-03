@@ -1,6 +1,5 @@
 name: fpot_ogbench_visual_cube_double
 description: FPOT on visual OGBench cube-double-play task1, seeds 1-4, 500K steps
-env_set: ogbench
 wandb_project: fpot_ogbench_benchmark
 
 sweep:
@@ -20,20 +19,3 @@ fixed:
   train.eval_interval: 20000
   agent.encoder: impala_small
   agent.p_aug: 0.5
-
-slurm:
-  time: "72:00:00"
-  mem: "64G"
-  cpus_per_task: 20
-  qos: big_qos
-  partitions:
-    - base_suma_rtx3090
-    - big_suma_rtx3090
-    - dell_rtx3090
-    - suma_rtx4090
-    - suma_a6000
-    - gigabyte_a6000
-    - gigabyte_a5000
-    - asus_6000ada
-    - asus_a5000
-    - tyan_a6000

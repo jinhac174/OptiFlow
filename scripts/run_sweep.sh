@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-# Usage: bash scripts/run_local_sweep.sh <sweep-yaml> [num_gpus=8] [parallel_per_gpu=1]
+# Run an entire sweep on a single multi-GPU host.
+#
+# Usage:
+#   bash scripts/run_sweep.sh <sweep-yaml> [num_gpus=8] [parallel_per_gpu=1]
+#
+# Each job in the sweep is dispatched onto GPU (idx % num_gpus) deterministically,
+# at most num_gpus * parallel_per_gpu in flight at a time. As each finishes, the
+# next idx is launched on its slot. Per-job logs go to logs/local/<name>_<idx>.log.
 set -uo pipefail
 YAML=${1:?"need yaml"}
 NUM_GPUS=${2:-8}

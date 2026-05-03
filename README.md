@@ -16,16 +16,15 @@ distills the one-step policy toward transport-selected reference actions. This
 separates value guidance from direct critic maximization while preserving
 multimodal action structure.
 
-The paper's algorithm and theoretical analysis are summarized in
-[`fpot/agent.py`](fpot/agent.py); training details and per-task
-hyperparameters live in [`experiments/`](experiments/).
+The algorithm is implemented in [`fpot/agent.py`](fpot/agent.py); training
+details and per-task hyperparameters live in [`experiments/`](experiments/).
 
 ---
 
 ## Repository layout
 
 ```
-fpot/                       # Algorithm package (everything the agent uses)
+fpot/                       # Algorithm package
   agent.py                  # FPOT agent (paper Sec. 4 + App. C.2 online)
   networks.py               # MLP, FlowPolicy, NNPolicy, Value (Q ensemble)
   encoders.py               # IMPALA visual encoders
@@ -33,14 +32,15 @@ fpot/                       # Algorithm package (everything the agent uses)
   replay_buffer.py          # numpy circular replay buffer
   evaluation.py             # rollout-based eval loop
 envs/                       # Env factories + offline-dataset wrappers
-  env_utils.py, vec_utils_gymnasium.py
+  env_utils.py              # dispatches OGBench vs D4RL by env_name
+  vec_utils_gymnasium.py    # gymnasium-API single-env factories (online phase)
   d4rl_utils.py, d4rl_common.py, adroit_utils.py
-  datasets.py               # Dataset / ReplayBuffer (FrozenDict-backed) for offline data
+  datasets.py               # FrozenDict-backed offline dataset wrapper
 configs/                    # Hydra config groups
   config.yaml               # top-level defaults
   agent/fpot.yaml           # FPOT agent defaults (paper Tab. 2)
   env/                      # 5 base templates: ogbench_state, ogbench_visual,
-                            #   d4rl_locomotion, d4rl_antmaze, d4rl_adroit
+                            # d4rl_locomotion, d4rl_antmaze, d4rl_adroit
   train/{offline,offline_to_online}.yaml
   eval/default.yaml
   logging/default.yaml
@@ -51,13 +51,9 @@ experiments/                # Sweep specifications (paper-aligned)
   ablations/                # N×M, τ×η, λ_q sweeps (paper App.)
   online/                   # offline-to-online sweeps
 scripts/
-  train.py                  # Hydra entry point
-  sweep_runner.py           # Resolve one sweep index → train.py command
-  submit.sh                 # Submit a sweep as a Slurm array
-  run_local_sweep.sh        # Round-robin a sweep across local GPUs (no Slurm)
-  launch_smoke.sh           # Compact multi-yaml multi-GPU launcher
-  check_sweep_status.sh     # Tally done / running / crashed / missing for a sweep
-slurm/                      # Slurm runner shells (d4rl_array.sh, ogbench_array.sh)
+  train.py                  # Hydra entry point (one job)
+  sweep_runner.py           # Resolve a sweep yaml + idx → train.py command
+  run_sweep.sh              # Launch an entire sweep across local GPUs
 requirements/               # Pinned dependency lists
 ```
 
@@ -65,22 +61,21 @@ requirements/               # Pinned dependency lists
 
 ## Installation
 
-The codebase splits into two Python environments because D4RL and OGBench
-require incompatible MuJoCo / Python combinations.
+D4RL and OGBench require incompatible MuJoCo / Python combinations, so the
+codebase uses two conda environments. The dispatch is automatic:
+[`envs/env_utils.py`](envs/env_utils.py) routes any env name containing
+`singletask` to OGBench and the rest to D4RL.
 
 | Conda env | Python | Use for |
 |---|---|---|
-| `flowrl-ogbench` | 3.12 | OGBench tasks (`*-singletask-*`) |
-| `flowrl-d4rl` | 3.10 | D4RL AntMaze / Adroit / locomotion |
-
-The dispatch is automatic: [`envs/env_utils.py`](envs/env_utils.py) routes any
-env name containing `singletask` to OGBench and the rest to D4RL.
+| `fpot-ogbench` | 3.12 | OGBench tasks (`*-singletask-*`) |
+| `fpot-d4rl` | 3.10 | D4RL AntMaze / Adroit / locomotion |
 
 ### OGBench env
 
 ```bash
-conda create -n flowrl-ogbench python=3.12 -y
-conda activate flowrl-ogbench
+conda create -n fpot-ogbench python=3.12 -y
+conda activate fpot-ogbench
 pip install -U pip setuptools wheel
 pip install -r requirements/requirements-ogbench.txt
 ```
@@ -90,16 +85,15 @@ pip install -r requirements/requirements-ogbench.txt
 D4RL needs MuJoCo 2.1 on disk:
 
 ```bash
-mkdir -p ~/.mujoco
-cd ~/.mujoco
+mkdir -p ~/.mujoco && cd ~/.mujoco
 curl -L https://github.com/deepmind/mujoco/releases/download/2.1.0/mujoco210-linux-x86_64.tar.gz | tar -xz
 ```
 
 Then create the env:
 
 ```bash
-conda create -n flowrl-d4rl python=3.10 -y
-conda activate flowrl-d4rl
+conda create -n fpot-d4rl python=3.10 -y
+conda activate fpot-d4rl
 pip install -U pip setuptools wheel
 pip install -r requirements/requirements-d4rl.txt
 ```
@@ -119,67 +113,28 @@ Verify GPU detection:
 python -c "import jax; print(jax.devices())"
 ```
 
-### WandB
+### WandB (optional)
 
 ```bash
 wandb login
 ```
 
-Logs are organized into six projects (see [Logging](#logging)), so no per-task
-project setup is needed.
+If you do not want online logging, set `+logging.wandb_mode=disabled` on any
+training command.
 
 ---
 
 ## Running experiments
 
 Every experiment is a single yaml under [`experiments/`](experiments/). Each
-yaml specifies the Cartesian product of overrides to run, plus the Slurm
-submission settings.
+yaml declares the Cartesian product of overrides to sweep (`sweep:`) and a set
+of fixed Hydra overrides (`fixed:`). One yaml = one logical experiment in the
+paper.
 
-### Inspect what a sweep would launch
-
-```bash
-# Total number of jobs in the array
-python scripts/sweep_runner.py count \
-    --sweep experiments/benchmarks/ogbench/manipulation/cube_single.yaml
-
-# Show the exact train.py command for one index, without running it
-python scripts/sweep_runner.py run \
-    --sweep experiments/benchmarks/ogbench/manipulation/cube_single.yaml \
-    --idx 0 --dry-run
-```
-
-### Submit to Slurm
+### Single foreground run
 
 ```bash
-bash scripts/submit.sh experiments/benchmarks/ogbench/manipulation/cube_single.yaml
-```
-
-The submitter reads `env_set`, `slurm:`, `wandb_project`, and `name` from the
-yaml, picks the right runner (`slurm/ogbench_array.sh` vs `slurm/d4rl_array.sh`,
-which differ only in the conda env they activate), computes the array size,
-builds the sbatch flags, and submits.
-
-To run only a subset of indices (e.g. seeds 1 and 5 across 5 tasks
-correspond to indices `0,4,8,12,16,20,24,28,32,36`):
-
-```bash
-bash scripts/submit.sh experiments/.../cube_single.yaml \
-    --array=0,4,8,12,16,20,24,28,32,36
-```
-
-### Run on a single multi-GPU box (no Slurm)
-
-```bash
-# Round-robin one yaml across 8 GPUs, 1 job per GPU
-bash scripts/run_local_sweep.sh \
-    experiments/benchmarks/ogbench/manipulation/cube_single.yaml 8 1
-```
-
-### Single job, foreground
-
-```bash
-CUDA_VISIBLE_DEVICES=0 python scripts/train.py \
+python scripts/train.py \
     env=ogbench_state \
     env.env_name=cube-single-play-singletask-task1-v0 \
     agent.w_temperature=2.0 \
@@ -188,22 +143,80 @@ CUDA_VISIBLE_DEVICES=0 python scripts/train.py \
     seed=1
 ```
 
+### Inspect a sweep before launching
+
+```bash
+# Number of jobs in the array
+python scripts/sweep_runner.py count \
+    --sweep experiments/benchmarks/ogbench/manipulation/cube_single.yaml
+
+# Print the train.py command for one index without running it
+python scripts/sweep_runner.py run \
+    --sweep experiments/benchmarks/ogbench/manipulation/cube_single.yaml \
+    --idx 0 --dry-run
+```
+
+### Launch an entire sweep across local GPUs
+
+[`scripts/run_sweep.sh`](scripts/run_sweep.sh) takes a sweep yaml and runs every
+job in it across the GPUs on the current host:
+
+```bash
+# 8 GPUs, 1 job per GPU (default). Per-job logs land in logs/local/<name>_<idx>.log.
+bash scripts/run_sweep.sh experiments/benchmarks/ogbench/manipulation/cube_single.yaml
+
+# Override GPU count and per-GPU concurrency
+bash scripts/run_sweep.sh experiments/online/door_cloned.yaml 4 2
+```
+
+The launcher pins each job index to GPU `idx % num_gpus` deterministically; at
+most `num_gpus * jobs_per_gpu` are in flight at any time. As each job
+completes, the next pending index is launched on its slot.
+
+### Reproduce the full paper, one command per group
+
+```bash
+# OGBench (state-based)
+for f in experiments/benchmarks/ogbench/{navigation,manipulation}/*.yaml; do
+    bash scripts/run_sweep.sh "$f"
+done
+
+# D4RL
+for f in experiments/benchmarks/d4rl/{antmaze,adroit}/*.yaml; do
+    bash scripts/run_sweep.sh "$f"
+done
+
+# Ablations (paper App.)
+for f in experiments/ablations/*.yaml; do
+    bash scripts/run_sweep.sh "$f"
+done
+
+# Offline-to-online (paper App. C.2)
+for f in experiments/online/*.yaml; do
+    bash scripts/run_sweep.sh "$f"
+done
+```
+
+Each yaml sweeps all seeds and ablation cells reported in the paper. Activate
+the matching conda env first (`fpot-ogbench` for OGBench yamls, `fpot-d4rl`
+for D4RL yamls).
+
 ---
 
-## Configuration system
+## Configuration reference
 
-Hydra resolves configs in this order:
+Hydra resolves configs in this order, lowest to highest priority:
+
 1. Defaults from `configs/config.yaml` (`agent: fpot`, `env: ogbench_state`,
    `train: offline`, `eval: default`, `logging: default`).
 2. Config-group overrides from the sweep yaml's `fixed:` block (e.g.
-   `env: ogbench_state`).
+   `env: d4rl_adroit`, `train: offline_to_online`).
 3. Field overrides from the same `fixed:` block (e.g. `agent.w_temperature: 2.0`).
 4. Sweep-axis overrides from `sweep:` (one combination per array index).
 5. Anything passed on the command line.
 
-The full list of agent hyperparameters lives in
-[`configs/agent/fpot.yaml`](configs/agent/fpot.yaml). Every field corresponds
-to a paper notation, e.g.
+The agent's hyperparameters live in
+[`configs/agent/fpot.yaml`](configs/agent/fpot.yaml). Mapping to paper notation:
 
 | Config key | Paper symbol | Meaning |
 |---|---|---|
@@ -214,69 +227,42 @@ to a paper notation, e.g.
 | `agent.lambda_vbc` / `agent.lambda_distill` | λ_VBC / λ_distill | loss weights |
 | `agent.lambda_q` | λ_q | (ablation only; default 0) direct critic-max term |
 | `agent.use_vabc_td_target` | y^VaBC | VaBC TD target variant |
-| `agent.q_agg` | — | `mean` (default) or `min` (CDQL) |
+| `agent.q_agg` | — | `mean` (default) or `min` (CDQL, used for adroit + antmaze-{large,giant}) |
 | `agent.discount` | γ | per-task override |
 
-The new env scheme uses **5 base templates** (`ogbench_state`, `ogbench_visual`,
-`d4rl_locomotion`, `d4rl_antmaze`, `d4rl_adroit`) and a per-task `env.env_name`
-override, instead of one yaml per task.
-
----
-
-## Reproducing the paper
-
-| Paper table / section | Yamls |
-|---|---|
-| Tab. 1, OGBench Navigation | `experiments/benchmarks/ogbench/navigation/*.yaml` |
-| Tab. 1, OGBench Manipulation | `experiments/benchmarks/ogbench/manipulation/*.yaml` |
-| Tab. 1, OGBench Visual | `experiments/benchmarks/ogbench/visual/*.yaml` |
-| Tab. 1, D4RL AntMaze | `experiments/benchmarks/d4rl/antmaze/*.yaml` |
-| Tab. 1, D4RL Adroit | `experiments/benchmarks/d4rl/adroit/*.yaml` |
-| App., N × M ablation | `experiments/ablations/nm_*.yaml` |
-| App., τ × η sensitivity | `experiments/ablations/sensitivity_*.yaml` |
-| App., λ_q ablation | `experiments/ablations/qmax_*.yaml` |
-| App. C.2, offline-to-online | `experiments/online/*.yaml` |
-
-Hyperparameters in every yaml are taken directly from the paper's Tables 2–5;
-each yaml lists the source line in its `description:` field. Each yaml sweeps
-the full set of seeds reported in the paper (1–8 for state-based / D4RL,
-1–4 for visual). See [`experiments/README.md`](experiments/README.md) for the
-yaml schema.
+Env templates ([`configs/env/`](configs/env/)) take an `env.env_name` override
+to specialize a base template (e.g. `env=ogbench_state` +
+`env.env_name=cube-double-play-singletask-task2-v0`). The five templates cover
+all task families in the paper.
 
 ---
 
 ## Logging
 
-Six WandB projects collect everything; nothing fans out per-task:
+WandB projects collect runs by experiment family:
 
 | Project | Source |
 |---|---|
 | `fpot_ogbench_benchmark` | `experiments/benchmarks/ogbench/**/*.yaml` |
-| `fpot_d4rl_benchmark` | `experiments/benchmarks/d4rl/**/*.yaml` |
-| `fpot_ablation_nm` | `experiments/ablations/nm_*.yaml` |
+| `fpot_d4rl_benchmark`    | `experiments/benchmarks/d4rl/**/*.yaml` |
+| `fpot_ablation_nm`       | `experiments/ablations/nm_*.yaml` |
 | `fpot_ablation_sensitivity` | `experiments/ablations/sensitivity_*.yaml` |
-| `fpot_ablation_qmax` | `experiments/ablations/qmax_*.yaml` |
-| `fpot_online` | `experiments/online/*.yaml` |
+| `fpot_ablation_qmax`     | `experiments/ablations/qmax_*.yaml` |
+| `fpot_online`            | `experiments/online/*.yaml` |
 
-Each run gets:
+Each run is named `<task> | <swept-axes> | s<seed>` (offline-to-online runs
+prefix `O2O |`). Tags: `task:<name>`, `seed:<n>`, `tau:<v>`, `eta:<v>`, plus
+any swept axes (e.g. `lq:0.1`, `N:16 M:64`, `off2on`).
 
-- **Name**: `<task> | <swept axes> | s<seed>` — e.g.
-  `cube_single_play_task1 | s1`, or `cube_double_play_task2 | tau=2 eta=0.01 | s1`
-  for a sensitivity run.
-- **Group**: same as name without the seed (collects seeds for one cell).
-- **Tags**: `task:<name>`, `seed:<n>`, `tau:<v>`, `eta:<v>`, plus the values
-  of any swept axes (e.g. `lq:0.1` in λ_q ablations, `N:16 M:64` in N×M
-  ablations). Offline-to-online runs also carry `off2on`.
+Disable on-disk artifacts (csv / config / checkpoints) per-run by adding to
+the sweep yaml's `fixed:` block:
 
-Disable on-disk artifacts (e.g. on space-constrained machines) with:
-
+```yaml
+fixed:
+  logging.save_csv: false
+  logging.save_config: false
+  logging.save_checkpoint: false
 ```
---override logging.save_csv=false \
---override logging.save_config=false \
---override logging.save_checkpoint=false
-```
-
-passed to `sweep_runner.py run`.
 
 ---
 
@@ -288,9 +274,10 @@ By default each run writes to:
 outputs/<env_name>/<sweep_name>/<hp_subdir>/seed_<N>/run_NN/
 ```
 
-with `metrics.csv`, `config.yaml`, `config.json`, and (if `save_checkpoint=true`)
-`final_agent/params_0.pkl`. The output root is `outputs/` in the project
-directory; change it via `logging.root_dir`.
+containing `metrics.csv`, `config.yaml`, `config.json`, and (if
+`logging.save_checkpoint=true`) `final_agent/params_0.pkl`. The output root is
+`outputs/` relative to the working directory; change it via
+`logging.root_dir=/path/to/outputs`.
 
 ---
 
@@ -298,11 +285,11 @@ directory; change it via `logging.root_dir`.
 
 | Symptom | Fix |
 |---|---|
-| `ModuleNotFoundError: No module named 'jax'` | Wrong conda env. `conda activate flowrl-{ogbench,d4rl}`. |
+| `ModuleNotFoundError: No module named 'jax'` | Wrong conda env. Activate `fpot-ogbench` or `fpot-d4rl`. |
 | D4RL: `Missing path to your environment variable .../usr/lib/nvidia` | `mujoco_py` cannot find NVIDIA driver libs; add `/usr/lib/nvidia` to `LD_LIBRARY_PATH`. |
-| `Unable to load cuSPARSE` | JAX cannot find its CUDA wheels. Verify `JAX_NVIDIA_DIR` is set, or `pip install --upgrade "jax[cuda13]==0.9.1"`. |
-| D4RL: `OSError: Unable to synchronously open file (truncated file)` | Corrupted dataset under `~/.d4rl/datasets/`. Delete and re-download (or fetch directly from `https://huggingface.co/datasets/imone/D4RL`). |
-| Hydra: `Could not override 'env.env_name'` | Make sure the yaml has `env: ogbench_state` (or another template) in its `fixed:` block before the per-task `env.env_name:` overrides. |
+| `Unable to load cuSPARSE` | JAX cannot find its CUDA wheels. Verify `JAX_NVIDIA_DIR` is set as in [Installation](#installation). |
+| D4RL: `OSError: Unable to synchronously open file ...` | Corrupted dataset under `~/.d4rl/datasets/`. Delete and re-download. (Race: when launching many seeds at once on a fresh machine, run one job to download first, then the rest.) |
+| Hydra: `Could not override 'env.env_name'` | Ensure the yaml has a base template (`env: ogbench_state` or similar) in its `fixed:` block before any `env.env_name:` override. |
 
 ---
 

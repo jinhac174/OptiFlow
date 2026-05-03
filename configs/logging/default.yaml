@@ -1,4 +1,4 @@
-root_dir: /home/danielc174/projects/FPOT/outputs
+root_dir: outputs
 
 overwrite: false
 auto_increment: true
