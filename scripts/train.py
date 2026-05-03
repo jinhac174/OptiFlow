@@ -647,8 +647,11 @@ def offline_to_online_train(cfg: DictConfig, run_dir: Path):
             if cfg.logging.save_checkpoint and step % save_interval == 0:
                 save_checkpoint(agent, run_dir / f"agent_step_{step}")
 
-        if cfg.logging.save_checkpoint:
-            save_checkpoint(agent, run_dir / f"agent_step_{T_off}")
+        # Always save the offline endpoint so the online phase can be resumed
+        # from this checkpoint via `train.resume_from=<run_dir>`. Single file,
+        # written once, regardless of `logging.save_checkpoint` (which controls
+        # periodic checkpoints and the final agent).
+        save_checkpoint(agent, run_dir / f"agent_step_{T_off}")
 
     # ----- Online phase setup (single env) -----
     eval_env_online = make_eval_env_gym(
