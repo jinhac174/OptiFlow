@@ -530,6 +530,10 @@ def offline_train(cfg: DictConfig, run_dir: Path):
     eval_interval = int(cfg.train.eval_interval)
     save_interval = int(cfg.train.save_interval)
 
+    # Optional explicit list of eval steps; overrides eval_interval cadence when set.
+    eval_steps_cfg = cfg.train.get("eval_steps", None)
+    eval_steps_set = set(int(s) for s in eval_steps_cfg) if eval_steps_cfg else None
+
     for step in range(1, max_steps + 1):
         batch = train_dataset.sample(batch_size)
         batch["global_step"] = np.int32(step)
@@ -541,7 +545,8 @@ def offline_train(cfg: DictConfig, run_dir: Path):
             csv_logger.log(row, step)
             log_to_wandb(row, step)
 
-        if step % eval_interval == 0:
+        do_eval = (step in eval_steps_set) if eval_steps_set is not None else (step % eval_interval == 0)
+        if do_eval:
             score, stats = evaluate_and_log(
                 agent=agent, eval_env=eval_env, cfg=cfg, run_dir=run_dir,
                 csv_logger=csv_logger, step=step, best_score=best_score,

@@ -1,9 +1,9 @@
 name: fpot_ablation_qmax_puzzle_4x4
-description: lambda_q ablation on puzzle-4x4-play-task1 (4 x 8 seeds = 32 jobs)
+description: lambda_q ablation on puzzle-4x4-play-task1 (paper Tab. 11), 3 non-default lambda_q x 8 seeds = 24 jobs; default 0.0 omitted (already in main results)
 wandb_project: fpot_ablation_qmax
 
 sweep:
-  agent.lambda_q: [0.0, 0.1, 1.0, 3.0]
+  agent.lambda_q: [0.001, 0.01, 0.1]
   seed: [1, 2, 3, 4, 5, 6, 7, 8]
 
 fixed:
@@ -15,5 +15,9 @@ fixed:
   agent.q_agg: mean
   agent.use_vabc_td_target: false
   agent.discount: 0.99
+  train: offline
   train.max_steps: 1000000
-  train.eval_interval: 20000
+  train.eval_steps: [800000, 900000, 1000000]
+  logging.save_csv: false
+  logging.save_config: false
+  logging.save_checkpoint: false
