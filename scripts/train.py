@@ -669,10 +669,14 @@ def offline_to_online_train(cfg: DictConfig, run_dir: Path):
     obs_dim    = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
 
-    capacity = max(int(cfg.train.replay_buffer_capacity), len(train_dataset) + T_on + 1)
+    # train_dataset is a FrozenDict subclass, so len() returns the number of fields
+    # (observations / actions / rewards / ...), NOT the number of transitions. The
+    # actual dataset size is `train_dataset.size`, populated by Dataset.__init__.
+    dataset_size = int(train_dataset.size)
+    capacity = max(int(cfg.train.replay_buffer_capacity), dataset_size + T_on + 1)
     buffer = ReplayBuffer(capacity=capacity, obs_dim=obs_dim, action_dim=action_dim)
 
-    n_seed = min(len(train_dataset), buffer.capacity)
+    n_seed = min(dataset_size, buffer.capacity)
     print(f"Seeding replay buffer with {n_seed} offline transitions (capacity={capacity})...", flush=True)
     buffer.add_batch(
         np.asarray(train_dataset["observations"][:n_seed],      dtype=np.float32),
