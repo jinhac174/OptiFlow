@@ -6,3 +6,8 @@ batch_size: 256
 log_interval: 5000
 eval_interval: 20000
 save_interval: 100000
+
+# Optional explicit list of global steps at which to evaluate. When set, it
+# overrides the eval_interval cadence (e.g. eval_steps: [800000, 900000, 1000000]
+# evaluates only at those three steps).
+eval_steps: null
