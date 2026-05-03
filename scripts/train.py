@@ -779,8 +779,10 @@ def offline_to_online_train(cfg: DictConfig, run_dir: Path):
             if cfg.logging.save_checkpoint and step % save_interval == 0:
                 save_checkpoint(agent, run_dir / f"agent_step_{step}")
 
-        # Always save offline endpoint (regardless of save_checkpoint flag)
-        save_checkpoint(agent, run_dir / f"agent_step_{T_off}")
+        # Save offline endpoint when checkpointing is enabled (skipped on disk-constrained
+        # single-process runs that go straight into the online phase).
+        if cfg.logging.save_checkpoint:
+            save_checkpoint(agent, run_dir / f"agent_step_{T_off}")
 
     # ========== Online phase setup ==========
     print(f"=== Online phase: steps {T_off+1}..{T_off+T_on} ===", flush=True)

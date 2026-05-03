@@ -1,19 +1,19 @@
-name: fpot_online_puzzle_4x4
-description: Offline-to-online FPOT on puzzle-4x4-play-task4 (1M+1M, seeds 1-8)
-env_set: ogbench
+name: fpot_online_pen_cloned
+description: Offline-to-online FPOT on D4RL pen-cloned-v1 (1M+1M, seeds 1-8; CDQ=true)
+env_set: d4rl
 wandb_project: fpot_online
 
 sweep:
   seed: [1, 2, 3, 4, 5, 6, 7, 8]
 
 fixed:
-  env: ogbench_state
-  env.env_name: puzzle-4x4-play-singletask-task4-v0
+  env: d4rl_adroit
+  env.env_name: pen-cloned-v1
   agent: fpot
   agent.agent_file: agent_online
-  agent.w_temperature: 2.0
-  agent.eta_temperature: 0.0001
-  agent.q_agg: mean
+  agent.w_temperature: 5.0
+  agent.eta_temperature: 0.001
+  agent.q_agg: min
   agent.use_vabc_td_target: false
   agent.discount: 0.99
   train: offline_to_online
