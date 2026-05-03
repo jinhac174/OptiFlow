@@ -20,6 +20,9 @@ fixed:
   train.offline_max_steps: 1000000
   train.online_max_steps: 1000000
   train.eval_interval: 50000
+  logging.save_csv: false
+  logging.save_config: false
+  logging.save_checkpoint: false
 
 slurm:
   time: "72:00:00"
