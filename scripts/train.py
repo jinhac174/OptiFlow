@@ -617,7 +617,7 @@ def offline_to_online_train(cfg: DictConfig, run_dir: Path):
     # ----- Resume from checkpoint? -----
     resume_from = cfg.train.get("resume_from", None)
     if resume_from is not None and str(resume_from).strip() != "":
-        from utils.flax_utils import restore_agent
+        from fpot.flax_utils import restore_agent
         print(f"=== Resuming from checkpoint: {resume_from} ===", flush=True)
         agent = restore_agent(agent, str(resume_from), 0)
         print(f"=== Skipping offline phase, jumping to online phase ===", flush=True)
