@@ -10,7 +10,6 @@ fixed:
   env: d4rl_adroit
   env.env_name: door-cloned-v1
   agent: fpot
-  agent.agent_file: agent_online
   agent.w_temperature: 1.0
   agent.eta_temperature: 1e-06
   agent.q_agg: min

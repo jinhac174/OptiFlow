@@ -1,5 +1,4 @@
 name: fpot
-agent_file: agent_fpot
 
 lr: 3.0e-4
 discount: 0.99

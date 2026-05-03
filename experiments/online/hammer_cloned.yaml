@@ -10,7 +10,6 @@ fixed:
   env: d4rl_adroit
   env.env_name: hammer-cloned-v1
   agent: fpot
-  agent.agent_file: agent_online
   agent.w_temperature: 50
   agent.eta_temperature: 0.001
   agent.q_agg: min

@@ -3,7 +3,7 @@ import gymnasium
 import numpy as np
 
 from envs.env_utils import EpisodeMonitor
-from utils.datasets import Dataset
+from envs.datasets import Dataset
 
 
 def ensure_shimmy_gym_v21():

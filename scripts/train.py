@@ -1,10 +1,8 @@
 """
 FPOT training script.
 
-Hydra entry point. The agent class is `FPOTAgent`; the legacy alias
-`agent_file: agent_online` from older sweep yamls is accepted and routed to
-the same class (online phase has no agent-side specialization, only a
-different training loop in `offline_to_online_train`).
+Hydra entry point. Dispatches to `offline_train` or `offline_to_online_train`
+based on `cfg.train.mode`. Single agent class: `FPOTAgent`.
 
 Usage:
     python scripts/train.py env=cube_single_play_task1 seed=1
@@ -28,10 +26,10 @@ import jax.numpy as jnp
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
 
-from FPOT.agent_fpot import FPOTAgent
+from fpot import FPOTAgent
+from fpot.evaluation import evaluate
+from fpot.replay_buffer import ReplayBuffer
 from envs.env_utils import make_env_and_datasets
-from utils.evaluation import evaluate
-from utils.replay_buffer import ReplayBuffer
 
 try:
     import wandb
@@ -39,7 +37,7 @@ except Exception:
     wandb = None
 
 try:
-    from utils.flax_utils import save_agent
+    from fpot.flax_utils import save_agent
 except Exception:
     save_agent = None
 
@@ -457,14 +455,6 @@ def build_env_kwargs(cfg: DictConfig) -> Dict:
     }
 
 
-def load_agent_class(agent_file: str):
-    # `agent_online` is a legacy alias kept for older sweep yamls; it routes to
-    # FPOTAgent because the online phase needs no agent-side specialization.
-    if agent_file in ("agent_fpot", "agent_online"):
-        return FPOTAgent
-    raise ValueError(f"Unknown agent_file: {agent_file}")
-
-
 # ------------------------------------------------------------------
 # Logging
 # ------------------------------------------------------------------
@@ -523,8 +513,7 @@ def offline_train(cfg: DictConfig, run_dir: Path):
         train_dataset.p_aug = float(cfg.agent.get('p_aug', 0.5))
 
     ex_batch = train_dataset.sample(2)
-    AgentClass = load_agent_class(cfg.agent.get("agent_file", "agent_offline"))
-    agent = AgentClass.create(
+    agent = FPOTAgent.create(
         seed=seed,
         ex_observations=ex_batch["observations"],
         ex_actions=ex_batch["actions"],
@@ -607,8 +596,7 @@ def offline_to_online_train(cfg: DictConfig, run_dir: Path):
         train_dataset.p_aug = float(cfg.agent.get("p_aug", 0.5))
 
     ex_batch = train_dataset.sample(2)
-    AgentClass = load_agent_class(cfg.agent.get("agent_file", "agent_fpot"))
-    agent = AgentClass.create(
+    agent = FPOTAgent.create(
         seed=seed,
         ex_observations=ex_batch["observations"],
         ex_actions=ex_batch["actions"],

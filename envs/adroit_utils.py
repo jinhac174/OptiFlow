@@ -2,7 +2,7 @@ import d4rl
 import numpy as np
 
 from envs import d4rl_common
-from utils.datasets import Dataset
+from envs.datasets import Dataset
 
 
 ADROIT_ENV_PREFIXES = (

@@ -10,7 +10,6 @@ fixed:
   env: ogbench_state
   env.env_name: puzzle-4x4-play-singletask-task4-v0
   agent: fpot
-  agent.agent_file: agent_online
   agent.w_temperature: 2.0
   agent.eta_temperature: 0.0001
   agent.q_agg: mean

@@ -6,7 +6,7 @@ import gymnasium
 import numpy as np
 from gymnasium.spaces import Box
 
-from utils.datasets import Dataset
+from envs.datasets import Dataset
 
 
 ADROIT_ENV_PREFIXES = (

@@ -33,18 +33,36 @@ import jax.numpy as jnp
 import jax.scipy as jsp
 import optax
 
-from networks import FlowPolicy, NNPolicy, Value
-from utils.encoders import encoder_modules
-from utils.flax_utils import ModuleDict, TrainState, nonpytree_field
-
-from .common import FPOTCommonMixin
+from .encoders import encoder_modules
+from .flax_utils import ModuleDict, TrainState, nonpytree_field
+from .networks import FlowPolicy, NNPolicy, Value
 
 
-class FPOTAgent(FPOTCommonMixin, flax.struct.PyTreeNode):
+class FPOTAgent(flax.struct.PyTreeNode):
 
     rng: Any
     network: Any
     config: Any = nonpytree_field()
+
+    # ------------------------------------------------------------------
+    # Critic-aggregation helpers (used by both critic and actor losses)
+    # ------------------------------------------------------------------
+
+    def _critic_agg(self, observations, actions, params, is_encoded=False):
+        """Evaluate critic ensemble and aggregate (mean or min)."""
+        qs = self.network.select('critic')(observations, actions=actions, params=params, is_encoded=is_encoded)
+        if qs.ndim == 2:
+            return qs.min(axis=0) if self.config['q_agg'] == 'min' else qs.mean(axis=0)
+        return qs
+
+    def _critic_with_std(self, observations, actions, params):
+        """Evaluate critic ensemble, return (aggregated, std)."""
+        qs = self.network.select('critic')(observations, actions=actions, params=params)
+        if qs.ndim == 2:
+            agg = qs.min(axis=0) if self.config['q_agg'] == 'min' else qs.mean(axis=0)
+            std = qs.std(axis=0)
+            return agg, std
+        return qs, jnp.zeros_like(qs)
 
     # ------------------------------------------------------------------
     # Internal action helpers (called within JIT contexts, take pre-gen noises)

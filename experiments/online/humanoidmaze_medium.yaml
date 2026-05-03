@@ -10,7 +10,6 @@ fixed:
   env: ogbench_state
   env.env_name: humanoidmaze-medium-navigate-singletask-task1-v0
   agent: fpot
-  agent.agent_file: agent_online
   agent.w_temperature: 1.0
   agent.eta_temperature: 0.001
   agent.q_agg: mean

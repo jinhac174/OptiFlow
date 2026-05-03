@@ -17,7 +17,7 @@ separates value guidance from direct critic maximization while preserving
 multimodal action structure.
 
 The paper's algorithm and theoretical analysis are summarized in
-[`FPOT/agent_fpot.py`](FPOT/agent_fpot.py); training details and per-task
+[`fpot/agent.py`](fpot/agent.py); training details and per-task
 hyperparameters live in [`experiments/`](experiments/).
 
 ---
@@ -25,9 +25,17 @@ hyperparameters live in [`experiments/`](experiments/).
 ## Repository layout
 
 ```
-FPOT/                       # Algorithm code
-  agent_fpot.py             # FPOT agent (paper Sec. 4 + App. C.2 online)
-  common.py                 # shared critic helpers
+fpot/                       # Algorithm package (everything the agent uses)
+  agent.py                  # FPOT agent (paper Sec. 4 + App. C.2 online)
+  networks.py               # MLP, FlowPolicy, NNPolicy, Value (Q ensemble)
+  encoders.py               # IMPALA visual encoders
+  flax_utils.py             # TrainState, ModuleDict, save/restore helpers
+  replay_buffer.py          # numpy circular replay buffer
+  evaluation.py             # rollout-based eval loop
+envs/                       # Env factories + offline-dataset wrappers
+  env_utils.py, vec_utils_gymnasium.py
+  d4rl_utils.py, d4rl_common.py, adroit_utils.py
+  datasets.py               # Dataset / ReplayBuffer (FrozenDict-backed) for offline data
 configs/                    # Hydra config groups
   config.yaml               # top-level defaults
   agent/fpot.yaml           # FPOT agent defaults (paper Tab. 2)
@@ -42,7 +50,6 @@ experiments/                # Sweep specifications (paper-aligned)
     d4rl/{antmaze,adroit}/
   ablations/                # N×M, τ×η, λ_q sweeps (paper App.)
   online/                   # offline-to-online sweeps
-networks/, envs/, utils/    # Networks, env wrappers, training utilities
 scripts/
   train.py                  # Hydra entry point
   sweep_runner.py           # Resolve one sweep index → train.py command
