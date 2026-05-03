@@ -65,23 +65,84 @@ python -c "from fpot import FPOTAgent; print('FPOT OK')"
 python -c "import ogbench; import d4rl; print('envs OK')"
 ```
 
-### 5. WandB (optional)
-
-```bash
-wandb login
-```
-
-To disable wandb on any run: `logging.wandb_mode=disabled`.
-
 ---
 
-## Reproducing the paper
+## Benchmark experiments
 
-Each yaml in [`experiments/`](experiments/) is one logical experiment.
-[`scripts/run_sweep.sh`](scripts/run_sweep.sh) launches all jobs in a yaml
-across local GPUs.
+Every paper experiment is one yaml under [`experiments/`](experiments/) — see
+[`experiments/README.md`](experiments/README.md) for the full layout. Each
+yaml's `fixed:` block holds the per-task hyperparameters from paper Tabs. 3–5
+(`agent.w_temperature` = τ, `agent.eta_temperature` = η, `agent.q_agg`,
+`agent.use_vabc_td_target`, `agent.discount`); the `sweep:` block enumerates
+the seeds (and, for state-based OGBench, the 5 task variants per family).
 
-### Paper Table 1 (main benchmarks)
+### Launch a single job
+
+A single job is one `(task, seed)` configuration. Pick the matching benchmark
+yaml, copy its `fixed:` overrides onto the command line, set `seed`, and pass
+the explicit `env.env_name`. Example — `cube-double-play-singletask-task2-v0`,
+seed 1, with the hyperparameters from
+[`experiments/benchmarks/ogbench/manipulation/cube_double.yaml`](experiments/benchmarks/ogbench/manipulation/cube_double.yaml):
+
+```bash
+python scripts/train.py \
+    env=ogbench_state \
+    env.env_name=cube-double-play-singletask-task2-v0 \
+    agent=fpot \
+    agent.w_temperature=2.0 \
+    agent.eta_temperature=0.01 \
+    agent.q_agg=mean \
+    agent.use_vabc_td_target=true \
+    agent.discount=0.99 \
+    train.max_steps=1000000 \
+    train.eval_interval=20000 \
+    seed=1
+```
+
+The defaults in [`configs/agent/fpot.yaml`](configs/agent/fpot.yaml) supply
+all of paper Tab. 2 (`[512]×4` MLP, lr 3e-4, batch 256, target-network τ
+0.005, N=16 student / M=64 teacher samples, 30 Sinkhorn iters, ε=0.05);
+overrides above only set the per-task fields.
+
+Any Hydra override is fair game on the command line — common ones:
+
+| Override | Effect |
+|---|---|
+| `seed=<N>` | random seed (re-creates JAX PRNGKey + dataset RNG) |
+| `train.max_steps=<N>` | number of gradient steps (1M for state OGBench, 500K for D4RL/visual) |
+| `train.eval_interval=<N>` | eval cadence in steps |
+| `eval.num_eval_episodes=<N>` | episodes per eval (default 100) |
+| `logging.save_checkpoint=true` | write `final_agent/params_0.pkl` at the end |
+| `logging.wandb_mode=disabled` | turn off wandb for this run |
+| `logging.root_dir=<path>` | redirect outputs (default `outputs/`) |
+
+### Sweep one task or one family
+
+[`scripts/run_sweep.sh`](scripts/run_sweep.sh) launches every job in a yaml
+across local GPUs (`<yaml> [num_gpus=8] [per_gpu=1]`, pins each job to
+GPU `idx % num_gpus`, per-job logs go to `logs/local/<name>_<idx>.log`):
+
+```bash
+# 40 jobs: 5 task variants × 8 seeds
+bash scripts/run_sweep.sh experiments/benchmarks/ogbench/manipulation/cube_double.yaml
+
+# 8 jobs: 1 D4RL env × 8 seeds
+bash scripts/run_sweep.sh experiments/benchmarks/d4rl/adroit/pen_cloned.yaml
+```
+
+Inspect before launching:
+
+```bash
+# Total job count for one yaml
+python scripts/sweep_runner.py count --sweep experiments/benchmarks/ogbench/manipulation/cube_double.yaml
+
+# Print one job's resolved train.py command without executing
+python scripts/sweep_runner.py run \
+    --sweep experiments/benchmarks/ogbench/manipulation/cube_double.yaml \
+    --idx 0 --dry-run
+```
+
+### Reproduce paper Table 1
 
 ```bash
 # OGBench state-based (1M steps, 8 seeds, 5 tasks per family)
@@ -89,7 +150,7 @@ for f in experiments/benchmarks/ogbench/{navigation,manipulation}/*.yaml; do
     bash scripts/run_sweep.sh "$f"
 done
 
-# OGBench visual (500K steps, 4 seeds, single task per yaml)
+# OGBench visual (500K steps, 4 seeds)
 for f in experiments/benchmarks/ogbench/visual/*.yaml; do
     bash scripts/run_sweep.sh "$f"
 done
@@ -100,14 +161,14 @@ for f in experiments/benchmarks/d4rl/{antmaze,adroit}/*.yaml; do
 done
 ```
 
-### Paper Appendix C.2 (offline-to-online fine-tuning)
+### Reproduce paper Appendix C.2 (offline-to-online fine-tuning)
 
-Each yaml in `experiments/online/` runs a single process that does **1M offline
-steps followed by 1M online steps** on the same task — total 2M gradient
-updates per seed, 8 seeds per task. The buffer is pre-seeded with the offline
-dataset and online transitions are appended uniformly. WandB step axis is
-continuous across phases (offline `1..1e6`, online `1e6+1..2e6`); runs are
-prefixed `O2O |` and tagged `off2on`.
+Each yaml in `experiments/online/` runs a single process that does **1M
+offline steps followed by 1M online steps** on the same task — total 2M
+gradient updates per seed, 8 seeds per task. The buffer is pre-seeded with
+the offline dataset and online transitions are appended uniformly. WandB
+step axis is continuous across phases (offline `1..1e6`, online
+`1e6+1..2e6`); runs are prefixed `O2O |` and tagged `off2on`.
 
 ```bash
 # All 7 tasks (3 OGBench + 4 D4RL Adroit), 8 seeds each
@@ -115,11 +176,12 @@ for f in experiments/online/*.yaml; do
     bash scripts/run_sweep.sh "$f"
 done
 
-# Or one task at a time (e.g. just cube-double)
+# Or one task at a time
 bash scripts/run_sweep.sh experiments/online/cube_double.yaml
 ```
 
-The offline-phase endpoint is always saved to `outputs/<env>/<sweep>/<hp>/seed_<N>/run_<NN>/agent_step_1000000/`
+The offline-phase endpoint is always saved to
+`outputs/<env>/<sweep>/<hp>/seed_<N>/run_<NN>/agent_step_1000000/`
 (regardless of `logging.save_checkpoint`) so a crashed online phase can be
 resumed without redoing the offline phase:
 
@@ -131,33 +193,6 @@ python scripts/train.py train=offline_to_online \
     train.resume_from=outputs/ogbench_state/fpot_online_cube_double/<hp>/seed_1/run_00/agent_step_1000000 \
     seed=1
 ```
-
-### Single foreground run
-
-```bash
-python scripts/train.py \
-    env=ogbench_state \
-    env.env_name=cube-double-play-singletask-task2-v0 \
-    agent.w_temperature=2.0 \
-    agent.eta_temperature=0.01 \
-    agent.use_vabc_td_target=true \
-    seed=1
-```
-
-### Inspect a sweep before launching
-
-```bash
-# Total job count
-python scripts/sweep_runner.py count --sweep experiments/benchmarks/ogbench/manipulation/cube_single.yaml
-
-# Print one job's command without executing
-python scripts/sweep_runner.py run \
-    --sweep experiments/benchmarks/ogbench/manipulation/cube_single.yaml \
-    --idx 0 --dry-run
-```
-
-`run_sweep.sh <yaml> [num_gpus=8] [per_gpu=1]` pins each job to GPU
-`idx % num_gpus`. Per-job logs go to `logs/local/<sweep_name>_<idx>.log`.
 
 ---
 
@@ -235,18 +270,6 @@ prefix `O2O |`). Tags include `task:<name>`, `seed:<n>`, `tau:<v>`, `eta:<v>`.
 By default each run writes to `outputs/<env_name>/<sweep>/<hp_subdir>/seed_<N>/run_NN/`
 containing `metrics.csv`, `config.yaml`, `config.json`, and (if
 `logging.save_checkpoint=true`) `final_agent/params_0.pkl`.
-
----
-
-## Common issues
-
-| Symptom                                                | Fix                                                                                          |
-|--------------------------------------------------------|----------------------------------------------------------------------------------------------|
-| `fatal error: GL/glew.h: No such file or directory` during first `import mujoco_py` | `conda install -c conda-forge glew patchelf` (the install step in §2). |
-| `Missing path to your environment variable .../usr/lib/nvidia` | `mujoco_py` cannot find NVIDIA driver libs; add `/usr/lib/nvidia` to `LD_LIBRARY_PATH`.    |
-| `Unable to load cuSPARSE`                              | JAX cannot find its CUDA wheels. Verify `JAX_NVIDIA_DIR` is set as in [Installation](#3-runtime-exports-per-shell). |
-| D4RL `OSError: Unable to synchronously open file ...` | Corrupted dataset under `~/.d4rl/datasets/`. Delete and re-download.                         |
-| Hydra: `Could not override 'env.env_name'`             | Add a base template (`env: ogbench_state` etc.) to the yaml's `fixed:` block first.          |
 
 ---
 
