@@ -1,5 +1,5 @@
 name: fpot_online_antsoccer_arena
-description: Offline-to-online FPOT on antsoccer-arena-navigate-task1 (1M+1M, seeds 1-8)
+description: Offline-to-online FPOT on antsoccer-arena-navigate-task1 (1M offline + 1M online, seeds 1-8)
 wandb_project: fpot_online
 
 sweep:

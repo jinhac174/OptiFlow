@@ -1,5 +1,5 @@
 name: fpot_online_puzzle_4x4
-description: Offline-to-online FPOT on puzzle-4x4-play-task4 (1M+1M, seeds 1-8)
+description: Offline-to-online FPOT on puzzle-4x4-play-task4 (1M offline + 1M online, seeds 1-8)
 wandb_project: fpot_online
 
 sweep:
@@ -18,6 +18,3 @@ fixed:
   train.offline_max_steps: 1000000
   train.online_max_steps: 1000000
   train.eval_interval: 50000
-  logging.save_csv: false
-  logging.save_config: false
-  logging.save_checkpoint: false

@@ -1,13 +1,4 @@
-"""
-FPOT training script.
-
-Hydra entry point. Dispatches to `offline_train` or `offline_to_online_train`
-based on `cfg.train.mode`. Single agent class: `FPOTAgent`.
-
-Usage:
-    python scripts/train.py env=cube_single_play_task1 seed=1
-    python scripts/train.py train=offline_to_online env=cube_double_play_task2 seed=1
-"""
+"""FPOT training entry point — dispatches offline vs offline-to-online via cfg.train.mode."""
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -42,9 +33,7 @@ except Exception:
     save_agent = None
 
 
-# ------------------------------------------------------------------
-# WandB metric whitelist
-# ------------------------------------------------------------------
+# ---- WandB metric whitelist ------------------------------------------------
 WANDB_METRICS = {
     "eval/episode.return":                          "eval/return",
     "eval/episode.normalized_return":               "eval/normalized_return",
@@ -83,9 +72,7 @@ WANDB_METRICS = {
 }
 
 
-# ------------------------------------------------------------------
-# Utilities
-# ------------------------------------------------------------------
+# ---- Utilities -------------------------------------------------------------
 
 def to_scalar(value: Any):
     arr = np.asarray(value)
@@ -141,7 +128,6 @@ class CsvLogger:
 
 
 class NullLogger:
-    """No-op stand-in for CsvLogger when logging.save_csv=false."""
     def log(self, data: Dict, step: int):
         pass
 
@@ -162,17 +148,10 @@ def set_global_seed(seed: int):
     np.random.seed(seed)
 
 
-# ------------------------------------------------------------------
-# Override parsing helpers (shared by run-dir and wandb init)
-# ------------------------------------------------------------------
+# ---- Override parsing (run-dir + wandb naming) -----------------------------
 
 def _format_value(v):
-    """Format a value for wandb name/group/tags.
-
-    Floats: repr, then strip trailing zeros after the decimal point, but
-    always keep at least one digit after the point (so 2.0 stays 2.0, not 2).
-    Ints, bools, strings: return unchanged (as str for non-strings).
-    """
+    # Float repr that keeps "2.0" as "2.0" (not "2"); leaves 1e-5 style alone.
     if isinstance(v, float):
         s = repr(v)
         # Only reformat simple decimal notation; leave 1e-5 style alone.
@@ -187,16 +166,9 @@ def _format_value(v):
 
 
 def _parse_overrides(overrides):
-    """Categorise Hydra task overrides.
-
-    Returns:
-        env_name, seed_str, exp_tag, ablation_parts.
-    ablation_parts excludes any override whose key appears in
-    +logging.fixed_keys=[...] (injected by sweep_runner.py for the
-    sweep's ``fixed:`` block) so the wandb name/group reflects only
-    the swept axes.
-    """
-    # First pass: extract fixed_keys list from the overrides themselves.
+    # Returns (env_name, seed_str, exp_tag, ablation_parts).
+    # ablation_parts excludes keys listed in +logging.fixed_keys (the sweep's
+    # fixed: block) so the wandb name/group only reflects swept axes.
     fixed_keys = set()
     for override in overrides:
         clean = override.lstrip('+~')
@@ -231,7 +203,7 @@ def _parse_overrides(overrides):
         elif key in fixed_keys:
             continue  # swept-yaml fixed override, skip for name/group/tags
         elif key in ('train.resume_from',):
-            continue  # filesystem path; not a hyperparameter, would exceed wandb's 64-char tag limit
+            continue  # path, not a hyperparam — would exceed wandb's 64-char tag limit
         elif key.startswith('agent.') or key.startswith('train.'):
             prefix    = 'agent.' if key.startswith('agent.') else 'train.'
             short_key = key[len(prefix):]
@@ -243,27 +215,13 @@ def _parse_overrides(overrides):
 
     return env_name, seed_str, exp_tag, ablation_parts
 
-# ------------------------------------------------------------------
-# Setup helpers
-# ------------------------------------------------------------------
+# ---- Setup helpers ---------------------------------------------------------
 
 def _build_run_base(cfg: DictConfig) -> Path:
-    """Derive the base path for this run from Hydra overrides.
-
-    Layout:
-        {root_dir}/{env.name}/{sweep_name}/{hyperparam_subdir}/seed_{N}
-
-    sweep_name
-        Value of the ``+exp=...`` override injected by sweep_runner.py.
-        Falls back to ``cfg.experiment_name`` for legacy sbatch scripts that
-        never set ``+exp``.
-
-    hyperparam_subdir
-        All overrides that are not env/seed/experiment_name/exp, with the
-        ``agent.``/``train.`` prefix stripped, joined as ``k=v`` pairs
-        separated by ``_``.  "base" when no such overrides exist (single-
-        config runs that only vary env and seed).
-    """
+    # Run dir = {root_dir}/{env.name}/{sweep_name}/{hp_subdir}/seed_{N}.
+    # sweep_name = value of +exp=... (injected by sweep_runner), falls back to
+    # cfg.experiment_name. hp_subdir joins swept overrides as k=v_k=v..., or
+    # "base" when only env/seed vary.
     try:
         from hydra.core.hydra_config import HydraConfig
         overrides = list(HydraConfig.get().overrides.task)
@@ -309,14 +267,7 @@ _TASK_RE = re.compile(r'^(.+)-singletask-task(\d+)$')
 
 
 def _clean_task_name(env_name: str) -> str:
-    """Convert raw env_name string to a clean task name for naming/tagging.
-
-    Examples:
-        cube-single-play-singletask-task1-v0 -> 'cube_single_play_task1'
-        antmaze-large-navigate-singletask-task3-v0 -> 'antmaze_large_navigate_task3'
-        antmaze-umaze-v2  -> 'antmaze_umaze'
-        door-cloned-v1    -> 'door_cloned'
-    """
+    # cube-single-play-singletask-task1-v0 -> cube_single_play_task1, etc.
     s = re.sub(r'-v\d+$', '', env_name)
     m = _TASK_RE.match(s)
     if m:
@@ -457,9 +408,7 @@ def build_env_kwargs(cfg: DictConfig) -> Dict:
     }
 
 
-# ------------------------------------------------------------------
-# Logging
-# ------------------------------------------------------------------
+# ---- Logging ---------------------------------------------------------------
 
 def log_to_wandb(row: Dict, step: int):
     if wandb is None or wandb.run is None:
@@ -469,9 +418,7 @@ def log_to_wandb(row: Dict, step: int):
         wandb.log(out, step=step)
 
 
-# ------------------------------------------------------------------
-# Evaluation
-# ------------------------------------------------------------------
+# ---- Evaluation ------------------------------------------------------------
 
 def evaluate_and_log(*, agent, eval_env, cfg, run_dir, csv_logger, step, best_score):
     eval_stats, _, _ = evaluate(
@@ -496,9 +443,7 @@ def evaluate_and_log(*, agent, eval_env, cfg, run_dir, csv_logger, step, best_sc
     return score, eval_stats
 
 
-# ------------------------------------------------------------------
-# Offline training
-# ------------------------------------------------------------------
+# ---- Offline training ------------------------------------------------------
 
 def offline_train(cfg: DictConfig, run_dir: Path):
     env_kwargs = build_env_kwargs(cfg)
@@ -563,30 +508,13 @@ def offline_train(cfg: DictConfig, run_dir: Path):
         save_checkpoint(agent, run_dir / "final_agent")
 
 
-# ------------------------------------------------------------------
-# Online training (gymnasium API; handles both OGBench and D4RL)
-# ------------------------------------------------------------------
-
-# ------------------------------------------------------------------
-# Offline-to-online training (single process, continuous step axis)
-# ------------------------------------------------------------------
+# ---- Offline-to-online training --------------------------------------------
+# Single process, continuous wandb step axis (offline 1..T_off, online T_off+1..T_off+T_on).
+# Online phase pre-seeds a unified replay buffer with the offline dataset, then
+# appends env transitions; mask = 1 - terminated so truncation never zeroes the
+# bootstrap. Optional cfg.train.resume_from skips the offline phase.
 
 def offline_to_online_train(cfg: DictConfig, run_dir: Path):
-    """FQL-style offline-to-online training in a single process.
-
-    Phases share one `agent` and one wandb step axis (offline 1..T_off, online
-    T_off+1..T_off+T_on). The online phase mirrors `fql/main.py`:
-
-      - single env (no vec env);
-      - one transition collected per step, one `agent.update` per step;
-      - one unified replay buffer pre-seeded with the offline dataset, online
-        transitions appended uniformly (no balanced sampling, no warmup);
-      - mask = 1 - terminated, so truncation does not break bootstrapping;
-      - action sampled via `agent.sample_actions(ob, seed)` — fresh latent z
-        per call provides exploration; no extra Gaussian noise.
-
-    Optionally resumes from a saved checkpoint via `cfg.train.resume_from`.
-    """
     import jax
     from envs.vec_utils_gymnasium import make_eval_env_gym
 
@@ -654,10 +582,7 @@ def offline_to_online_train(cfg: DictConfig, run_dir: Path):
             if cfg.logging.save_checkpoint and step % save_interval == 0:
                 save_checkpoint(agent, run_dir / f"agent_step_{step}")
 
-        # Always save the offline endpoint so the online phase can be resumed
-        # from this checkpoint via `train.resume_from=<run_dir>`. Single file,
-        # written once, regardless of `logging.save_checkpoint` (which controls
-        # periodic checkpoints and the final agent).
+        # Always save offline endpoint so online phase can resume via train.resume_from.
         save_checkpoint(agent, run_dir / f"agent_step_{T_off}")
 
     # ----- Online phase setup (single env) -----
@@ -674,9 +599,8 @@ def offline_to_online_train(cfg: DictConfig, run_dir: Path):
     obs_dim    = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
 
-    # train_dataset is a FrozenDict subclass, so len() returns the number of fields
-    # (observations / actions / rewards / ...), NOT the number of transitions. The
-    # actual dataset size is `train_dataset.size`, populated by Dataset.__init__.
+    # train_dataset is a FrozenDict subclass — use .size, NOT len() (which returns
+    # the number of fields). Bug fix: previous len() seeded buffer with 7 transitions.
     dataset_size = int(train_dataset.size)
     capacity = max(int(cfg.train.replay_buffer_capacity), dataset_size + T_on + 1)
     buffer = ReplayBuffer(capacity=capacity, obs_dim=obs_dim, action_dim=action_dim)
@@ -709,7 +633,6 @@ def offline_to_online_train(cfg: DictConfig, run_dir: Path):
         next_ob, reward, terminated, truncated, _ = env.step(action)
         done = bool(terminated) or bool(truncated)
 
-        # mask = 1 - terminated  (truncation must not zero the bootstrap)
         buffer.add(ob, action, float(reward), next_ob, bool(terminated))
         ob = next_ob
 
@@ -743,9 +666,7 @@ def offline_to_online_train(cfg: DictConfig, run_dir: Path):
 
 
 
-# ------------------------------------------------------------------
-# Entry point
-# ------------------------------------------------------------------
+# ---- Entry point -----------------------------------------------------------
 
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
 def main(cfg: DictConfig):

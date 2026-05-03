@@ -1,89 +1,93 @@
 # Experiments
 
-Each `*.yaml` in this directory is a single sweep specification. It declares
-the Cartesian product of overrides to run (`sweep:`) and a set of overrides
-applied to every job (`fixed:`). One yaml = one logical experiment in the
-paper.
+Each `*.yaml` is one logical experiment. It declares the Cartesian product of
+overrides to run (`sweep:`) and a set of overrides applied to every job
+(`fixed:`).
 
 ## Layout
 
 ```
 experiments/
-├── benchmarks/          # paper main results (Sec. 5)
+├── benchmarks/              # paper Sec. 5 / Tab. 1 (final results)
 │   ├── ogbench/
-│   │   ├── navigation/      # antmaze-large/giant, humanoidmaze-{med,large}, antsoccer
+│   │   ├── navigation/      # antmaze-{large,giant}, humanoidmaze-{med,large}, antsoccer
 │   │   ├── manipulation/    # cube-{single,double,triple}, scene, puzzle-{3x3,4x4}
-│   │   └── visual/          # pixel variants of cube-{single,double}, scene, puzzle-*
+│   │   └── visual/          # pixel variants (4 seeds, 500K steps)
 │   └── d4rl/
 │       ├── antmaze/         # umaze, medium-{play,diverse}, large-{play,diverse}
 │       └── adroit/          # pen / door / hammer / relocate × {human, cloned, expert}
-├── ablations/           # paper appendices
-│   ├── nm_*.yaml            # N (one-step samples) × M (reference samples) sweep
-│   ├── sensitivity_*.yaml   # τ × η around the per-task optimum
-│   └── qmax_*.yaml          # λ_q ablation (direct critic maximization)
-└── online/              # offline-to-online fine-tuning (App. C.2)
+└── online/                  # paper App. C.2 (offline-to-online fine-tuning, 1M+1M)
 ```
+
+One yaml per task family for OGBench (5 task variants × 8 seeds in one sweep);
+one yaml per env for D4RL (the 12 Adroit tasks and 6 AntMaze variants each have
+distinct `(τ, η)` per paper Tab. 5).
 
 ## Hyperparameter source
 
-| Source                                | Defaults                                                                                                                                                                       |
-|---------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Table 2 (`tab:FPOT_shared_hparams`)   | MLP `[512]×4`, GeLU, LayerNorm critic only, Adam lr=3e-4, target τ=5e-3, batch=256, K=10 Euler steps, N=16 student / M=64 teacher, 30 Sinkhorn iters, ε=0.05, γ=0.99 default. |
-| Table 3 (`tab:FPOT_hparams_override`) | Per-task discount γ and TD target (`y^VaBC`) overrides — encoded in each yaml's `fixed:` block.                                                                                |
-| Table 4 (`tab:hparams_ogbench`)       | Per-task FPOT (τ, η) for OGBench — encoded as `agent.w_temperature` and `agent.eta_temperature`.                                                                              |
-| Table 5 (`tab:hparams_d4rl`)          | Per-task FPOT (τ, η) for D4RL — encoded per-yaml.                                                                                                                              |
+| Source                                | Where it lives                                                                               |
+|---------------------------------------|----------------------------------------------------------------------------------------------|
+| Paper Tab. 2 (shared defaults)        | [`configs/agent/fpot.yaml`](../configs/agent/fpot.yaml) — `[512]×4` GeLU, lr 3e-4, etc.     |
+| Paper Tab. 3 (per-task γ, TD target)  | Each yaml's `fixed:` block (`agent.discount`, `agent.use_vabc_td_target`).                  |
+| Paper Tab. 4 (per-task τ, η, OGBench) | Each yaml's `fixed:` block (`agent.w_temperature`, `agent.eta_temperature`).                |
+| Paper Tab. 5 (per-task τ, η, D4RL)    | Same.                                                                                       |
 
-The `agent` config group ([`configs/agent/fpot.yaml`](../configs/agent/fpot.yaml))
-provides the Table 2 shared defaults; each sweep yaml overrides only the
-per-task fields from Tables 3–5.
+CDQL (`agent.q_agg: min`) is set in the yaml for `antmaze-{large, giant}` and
+all D4RL tasks; `mean` elsewhere (paper Tab. 2).
 
-## Running a sweep
+## Running
 
 ```bash
-# Inspect (no execution)
+# Inspect total job count
 python scripts/sweep_runner.py count --sweep experiments/benchmarks/ogbench/manipulation/cube_single.yaml
-python scripts/sweep_runner.py run   --sweep experiments/benchmarks/ogbench/manipulation/cube_single.yaml --idx 0 --dry-run
 
-# Run the entire sweep across local GPUs
+# Print one job's command without running
+python scripts/sweep_runner.py run \
+    --sweep experiments/benchmarks/ogbench/manipulation/cube_single.yaml \
+    --idx 0 --dry-run
+
+# Launch the full sweep across local GPUs (8 GPUs, 1 job per GPU by default)
 bash scripts/run_sweep.sh experiments/benchmarks/ogbench/manipulation/cube_single.yaml
 ```
 
-See the top-level [`README.md`](../README.md) for full reproduction commands.
+`run_sweep.sh` pins each job to GPU `idx % num_gpus` and keeps at most
+`num_gpus * per_gpu` jobs in flight. Per-job logs land in
+`logs/local/<sweep_name>_<idx>.log`.
 
-## Sweep yaml schema
+## Yaml schema
 
 ```yaml
-name: <sweep id>                  # used in the wandb +exp= tag and per-job log filename
-description: <one-line summary>
-wandb_project: <project name>     # injected as +logging.wandb_project=...
+name: <sweep id>                  # used as the wandb +exp tag
+description: <one line>
+wandb_project: <project>          # routed to wandb
 
-sweep:                            # Cartesian product axes (declaration-order = loop order)
+sweep:                            # Cartesian product (declaration order = loop order)
   env.env_name: [...]
   seed: [1, 2, 3, 4, 5, 6, 7, 8]
 
-fixed:                            # appended to every job (no product)
+fixed:                            # appended to every job
   env: ogbench_state              # config-group selection
   agent: fpot
   agent.w_temperature: 2.0
-  agent.eta_temperature: 1e-1
-  train: offline                  # or offline_to_online
   ...
 ```
 
-Sweep job indices iterate the Cartesian product in **declaration order**: the
-first key is the outermost loop (changes slowest), the last key is the
-innermost (changes fastest).
+Sweep job indices iterate the Cartesian product in declaration order: the
+first key is the outermost loop (changes slowest), the last is the innermost.
+
+For online fine-tuning, set `train: offline_to_online` and `train.offline_max_steps`
++ `train.online_max_steps` (see `experiments/online/*.yaml`).
 
 ## Reproducing paper tables
 
 | Paper table                  | Yamls to run                                              |
 |------------------------------|-----------------------------------------------------------|
-| Table 1 OGBench Navigation   | `benchmarks/ogbench/navigation/*.yaml`                    |
-| Table 1 OGBench Manipulation | `benchmarks/ogbench/manipulation/*.yaml`                  |
-| Table 1 OGBench Visual       | `benchmarks/ogbench/visual/*.yaml`                        |
-| Table 1 D4RL AntMaze         | `benchmarks/d4rl/antmaze/*.yaml`                          |
-| Table 1 D4RL Adroit          | `benchmarks/d4rl/adroit/*.yaml`                           |
-| App. N×M ablation            | `ablations/nm_{cube_double,scene,antmaze}.yaml`           |
-| App. τ × η sensitivity       | `ablations/sensitivity_{cube_double,scene,antmaze}.yaml`  |
-| App. λ_q ablation            | `ablations/qmax_*.yaml`                                   |
-| App. C.2 offline-to-online   | `online/*.yaml`                                           |
+| Tab. 1 OGBench Navigation    | `benchmarks/ogbench/navigation/*.yaml`                    |
+| Tab. 1 OGBench Manipulation  | `benchmarks/ogbench/manipulation/*.yaml`                  |
+| Tab. 1 OGBench Visual        | `benchmarks/ogbench/visual/*.yaml`                        |
+| Tab. 1 D4RL AntMaze          | `benchmarks/d4rl/antmaze/*.yaml`                          |
+| Tab. 1 D4RL Adroit           | `benchmarks/d4rl/adroit/*.yaml`                           |
+| App. C.2 Offline-to-Online   | `online/*.yaml`                                           |
+
+Each yaml sweeps all seeds reported in the paper (8 seeds for state-based and
+D4RL tasks, 4 seeds for visual OGBench).

@@ -4,141 +4,142 @@ JAX/Flax implementation of **Flow Policy via Optimal Transport (FPOT)** — a
 value-weighted optimal-transport method for learning efficient one-step flow
 policies in offline reinforcement learning.
 
-FPOT jointly learns:
+FPOT jointly trains:
 
-- a **critic** `Q_φ(s, a)` from offline data,
-- a **value-aware reference flow policy** `μ_ω(s, z)` (multi-step Euler integration), and
-- a **one-step flow policy** `μ_θ(s, z)` deployed at inference.
+- a critic `Q_φ(s, a)`,
+- a value-aware reference flow policy `μ_ω(s, z)` (multi-step Euler integration),
+- a one-step flow policy `μ_θ(s, z)` deployed at inference.
 
-For each state, FPOT samples actions from both policies, builds an entropic
-optimal-transport coupling whose teacher-side marginal is critic-weighted, and
-distills the one-step policy toward transport-selected reference actions. This
-separates value guidance from direct critic maximization while preserving
-multimodal action structure.
-
-The algorithm is implemented in [`fpot/agent.py`](fpot/agent.py); training
-details and per-task hyperparameters live in [`experiments/`](experiments/).
-
----
-
-## Repository layout
-
-```
-fpot/                       # Algorithm package
-  agent.py                  # FPOT agent (paper Sec. 4 + App. C.2 online)
-  networks.py               # MLP, FlowPolicy, NNPolicy, Value (Q ensemble)
-  encoders.py               # IMPALA visual encoders
-  flax_utils.py             # TrainState, ModuleDict, save/restore helpers
-  replay_buffer.py          # numpy circular replay buffer
-  evaluation.py             # rollout-based eval loop
-envs/                       # Env factories + offline-dataset wrappers
-  env_utils.py              # dispatches OGBench vs D4RL by env_name
-  vec_utils_gymnasium.py    # gymnasium-API single-env factories (online phase)
-  d4rl_utils.py, d4rl_common.py, adroit_utils.py
-  datasets.py               # FrozenDict-backed offline dataset wrapper
-configs/                    # Hydra config groups
-  config.yaml               # top-level defaults
-  agent/fpot.yaml           # FPOT agent defaults (paper Tab. 2)
-  env/                      # 5 base templates: ogbench_state, ogbench_visual,
-                            # d4rl_locomotion, d4rl_antmaze, d4rl_adroit
-  train/{offline,offline_to_online}.yaml
-  eval/default.yaml
-  logging/default.yaml
-experiments/                # Sweep specifications (paper-aligned)
-  benchmarks/
-    ogbench/{navigation,manipulation,visual}/
-    d4rl/{antmaze,adroit}/
-  ablations/                # N×M, τ×η, λ_q sweeps (paper App.)
-  online/                   # offline-to-online sweeps
-scripts/
-  train.py                  # Hydra entry point (one job)
-  sweep_runner.py           # Resolve a sweep yaml + idx → train.py command
-  run_sweep.sh              # Launch an entire sweep across local GPUs
-requirements/               # Pinned dependency lists
-```
+Per state, it constructs an entropic optimal-transport coupling between
+reference- and one-step-policy action samples whose teacher marginal is
+critic-weighted, then distills the one-step policy toward transport-selected
+reference actions. The algorithm lives in
+[`fpot/agent.py`](fpot/agent.py); per-task hyperparameters (paper Tables 4–5)
+are encoded in the `experiments/` yamls.
 
 ---
 
 ## Installation
 
-D4RL and OGBench require incompatible MuJoCo / Python combinations, so the
-codebase uses two conda environments. The dispatch is automatic:
-[`envs/env_utils.py`](envs/env_utils.py) routes any env name containing
-`singletask` to OGBench and the rest to D4RL.
+A single Python 3.10 conda environment hosts both OGBench (gymnasium /
+modern mujoco) and D4RL (legacy `gym==0.23` / `mujoco_py` 2.1).
 
-| Conda env | Python | Use for |
-|---|---|---|
-| `fpot-ogbench` | 3.12 | OGBench tasks (`*-singletask-*`) |
-| `fpot-d4rl` | 3.10 | D4RL AntMaze / Adroit / locomotion |
-
-### OGBench env
-
-```bash
-conda create -n fpot-ogbench python=3.12 -y
-conda activate fpot-ogbench
-pip install -U pip setuptools wheel
-pip install -r requirements/requirements-ogbench.txt
-```
-
-### D4RL env
-
-D4RL needs MuJoCo 2.1 on disk:
+### 1. MuJoCo 2.1 binary (required by D4RL via `mujoco_py`)
 
 ```bash
 mkdir -p ~/.mujoco && cd ~/.mujoco
 curl -L https://github.com/deepmind/mujoco/releases/download/2.1.0/mujoco210-linux-x86_64.tar.gz | tar -xz
 ```
 
-Then create the env:
+### 2. Conda env + pip install
 
 ```bash
-conda create -n fpot-d4rl python=3.10 -y
-conda activate fpot-d4rl
-pip install -U pip setuptools wheel
-pip install -r requirements/requirements-d4rl.txt
+conda create -n fpot python=3.10 -y
+conda activate fpot
+# mujoco_py compiles a Cython extension on first import; it needs GLEW headers
+# and patchelf. Install via conda-forge (no root required):
+conda install -c conda-forge -y glew patchelf
+pip install -e .
 ```
 
-D4RL also needs three runtime exports per shell session:
+`pip install -e .` reads `pyproject.toml` and pulls every
+JAX/Flax/OGBench/D4RL dependency.
+
+### 3. Runtime exports (per shell)
+
+JAX needs to find its bundled CUDA wheels, `mujoco_py` needs the MuJoCo 2.1
+binary, and rendering uses OSMesa:
 
 ```bash
 export JAX_NVIDIA_DIR="$CONDA_PREFIX/lib/python3.10/site-packages/nvidia"
-export LD_LIBRARY_PATH="$JAX_NVIDIA_DIR/cusparse/lib:$JAX_NVIDIA_DIR/cublas/lib:$JAX_NVIDIA_DIR/cuda_runtime/lib:$JAX_NVIDIA_DIR/cudnn/lib:$JAX_NVIDIA_DIR/cufft/lib:$JAX_NVIDIA_DIR/cusolver/lib:$JAX_NVIDIA_DIR/nccl/lib:$JAX_NVIDIA_DIR/nvjitlink/lib:$HOME/.mujoco/mujoco210/bin:/usr/lib/nvidia:${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="$JAX_NVIDIA_DIR/cusparse/lib:$JAX_NVIDIA_DIR/cublas/lib:$JAX_NVIDIA_DIR/cuda_runtime/lib:$JAX_NVIDIA_DIR/cudnn/lib:$JAX_NVIDIA_DIR/cufft/lib:$JAX_NVIDIA_DIR/cusolver/lib:$JAX_NVIDIA_DIR/nccl/lib:$JAX_NVIDIA_DIR/nvjitlink/lib:$CONDA_PREFIX/lib:$HOME/.mujoco/mujoco210/bin:/usr/lib/nvidia:${LD_LIBRARY_PATH:-}"
 export MUJOCO_GL=osmesa
 export D4RL_SUPPRESS_IMPORT_ERROR=1
 ```
 
-Verify GPU detection:
+### 4. Verify
 
 ```bash
 python -c "import jax; print(jax.devices())"
+python -c "from fpot import FPOTAgent; print('FPOT OK')"
+python -c "import ogbench; import d4rl; print('envs OK')"
 ```
 
-### WandB (optional)
+### 5. WandB (optional)
 
 ```bash
 wandb login
 ```
 
-If you do not want online logging, set `+logging.wandb_mode=disabled` on any
-training command.
+To disable wandb on any run: `logging.wandb_mode=disabled`.
 
 ---
 
-## Running experiments
+## Reproducing the paper
 
-Every experiment is a single yaml under [`experiments/`](experiments/). Each
-yaml declares the Cartesian product of overrides to sweep (`sweep:`) and a set
-of fixed Hydra overrides (`fixed:`). One yaml = one logical experiment in the
-paper.
+Each yaml in [`experiments/`](experiments/) is one logical experiment.
+[`scripts/run_sweep.sh`](scripts/run_sweep.sh) launches all jobs in a yaml
+across local GPUs.
+
+### Paper Table 1 (main benchmarks)
+
+```bash
+# OGBench state-based (1M steps, 8 seeds, 5 tasks per family)
+for f in experiments/benchmarks/ogbench/{navigation,manipulation}/*.yaml; do
+    bash scripts/run_sweep.sh "$f"
+done
+
+# OGBench visual (500K steps, 4 seeds, single task per yaml)
+for f in experiments/benchmarks/ogbench/visual/*.yaml; do
+    bash scripts/run_sweep.sh "$f"
+done
+
+# D4RL AntMaze + Adroit (500K steps, 8 seeds)
+for f in experiments/benchmarks/d4rl/{antmaze,adroit}/*.yaml; do
+    bash scripts/run_sweep.sh "$f"
+done
+```
+
+### Paper Appendix C.2 (offline-to-online fine-tuning)
+
+Each yaml in `experiments/online/` runs a single process that does **1M offline
+steps followed by 1M online steps** on the same task — total 2M gradient
+updates per seed, 8 seeds per task. The buffer is pre-seeded with the offline
+dataset and online transitions are appended uniformly. WandB step axis is
+continuous across phases (offline `1..1e6`, online `1e6+1..2e6`); runs are
+prefixed `O2O |` and tagged `off2on`.
+
+```bash
+# All 7 tasks (3 OGBench + 4 D4RL Adroit), 8 seeds each
+for f in experiments/online/*.yaml; do
+    bash scripts/run_sweep.sh "$f"
+done
+
+# Or one task at a time (e.g. just cube-double)
+bash scripts/run_sweep.sh experiments/online/cube_double.yaml
+```
+
+The offline-phase endpoint is always saved to `outputs/<env>/<sweep>/<hp>/seed_<N>/run_<NN>/agent_step_1000000/`
+(regardless of `logging.save_checkpoint`) so a crashed online phase can be
+resumed without redoing the offline phase:
+
+```bash
+python scripts/train.py train=offline_to_online \
+    env=ogbench_state env.env_name=cube-double-play-singletask-task2-v0 \
+    agent=fpot agent.w_temperature=2.0 agent.eta_temperature=0.01 \
+    agent.use_vabc_td_target=true \
+    train.resume_from=outputs/ogbench_state/fpot_online_cube_double/<hp>/seed_1/run_00/agent_step_1000000 \
+    seed=1
+```
 
 ### Single foreground run
 
 ```bash
 python scripts/train.py \
     env=ogbench_state \
-    env.env_name=cube-single-play-singletask-task1-v0 \
+    env.env_name=cube-double-play-singletask-task2-v0 \
     agent.w_temperature=2.0 \
-    agent.eta_temperature=1e-1 \
+    agent.eta_temperature=0.01 \
     agent.use_vabc_td_target=true \
     seed=1
 ```
@@ -146,60 +147,48 @@ python scripts/train.py \
 ### Inspect a sweep before launching
 
 ```bash
-# Number of jobs in the array
-python scripts/sweep_runner.py count \
-    --sweep experiments/benchmarks/ogbench/manipulation/cube_single.yaml
+# Total job count
+python scripts/sweep_runner.py count --sweep experiments/benchmarks/ogbench/manipulation/cube_single.yaml
 
-# Print the train.py command for one index without running it
+# Print one job's command without executing
 python scripts/sweep_runner.py run \
     --sweep experiments/benchmarks/ogbench/manipulation/cube_single.yaml \
     --idx 0 --dry-run
 ```
 
-### Launch an entire sweep across local GPUs
+`run_sweep.sh <yaml> [num_gpus=8] [per_gpu=1]` pins each job to GPU
+`idx % num_gpus`. Per-job logs go to `logs/local/<sweep_name>_<idx>.log`.
 
-[`scripts/run_sweep.sh`](scripts/run_sweep.sh) takes a sweep yaml and runs every
-job in it across the GPUs on the current host:
+---
 
-```bash
-# 8 GPUs, 1 job per GPU (default). Per-job logs land in logs/local/<name>_<idx>.log.
-bash scripts/run_sweep.sh experiments/benchmarks/ogbench/manipulation/cube_single.yaml
+## Repository layout
 
-# Override GPU count and per-GPU concurrency
-bash scripts/run_sweep.sh experiments/online/door_cloned.yaml 4 2
 ```
-
-The launcher pins each job index to GPU `idx % num_gpus` deterministically; at
-most `num_gpus * jobs_per_gpu` are in flight at any time. As each job
-completes, the next pending index is launched on its slot.
-
-### Reproduce the full paper, one command per group
-
-```bash
-# OGBench (state-based)
-for f in experiments/benchmarks/ogbench/{navigation,manipulation}/*.yaml; do
-    bash scripts/run_sweep.sh "$f"
-done
-
-# D4RL
-for f in experiments/benchmarks/d4rl/{antmaze,adroit}/*.yaml; do
-    bash scripts/run_sweep.sh "$f"
-done
-
-# Ablations (paper App.)
-for f in experiments/ablations/*.yaml; do
-    bash scripts/run_sweep.sh "$f"
-done
-
-# Offline-to-online (paper App. C.2)
-for f in experiments/online/*.yaml; do
-    bash scripts/run_sweep.sh "$f"
-done
+fpot/                  # Algorithm package
+  agent.py             # FPOT agent (paper Sec. 4)
+  networks.py          # MLP, FlowPolicy (teacher), NNPolicy (student), Value
+  encoders.py          # IMPALA visual encoders
+  flax_utils.py        # TrainState, ModuleDict, save/restore helpers
+  replay_buffer.py     # numpy circular buffer (online phase)
+  evaluation.py        # rollout-based eval loop
+envs/                  # Env factories + offline-dataset wrappers
+  env_utils.py         # dispatches OGBench vs D4RL by env_name
+  vec_utils_gymnasium.py
+  d4rl_utils.py, adroit_utils.py, datasets.py
+configs/               # Hydra config groups
+  agent/fpot.yaml      # Tab. 2 shared defaults
+  env/                 # 4 base templates: ogbench_{state,visual}, d4rl_{antmaze,adroit}
+  train/               # offline.yaml, offline_to_online.yaml
+  eval/, logging/
+experiments/           # Sweep specifications (paper-aligned)
+  benchmarks/          # paper Tab. 1
+  online/              # paper App. C.2
+scripts/
+  train.py             # Hydra entry point (one job)
+  sweep_runner.py      # yaml + idx → train.py command
+  run_sweep.sh         # Launch a sweep across local GPUs
+pyproject.toml         # Unified dependency spec
 ```
-
-Each yaml sweeps all seeds and ablation cells reported in the paper. Activate
-the matching conda env first (`fpot-ogbench` for OGBench yamls, `fpot-d4rl`
-for D4RL yamls).
 
 ---
 
@@ -215,25 +204,18 @@ Hydra resolves configs in this order, lowest to highest priority:
 4. Sweep-axis overrides from `sweep:` (one combination per array index).
 5. Anything passed on the command line.
 
-The agent's hyperparameters live in
-[`configs/agent/fpot.yaml`](configs/agent/fpot.yaml). Mapping to paper notation:
+Agent hyperparameters live in [`configs/agent/fpot.yaml`](configs/agent/fpot.yaml):
 
-| Config key | Paper symbol | Meaning |
-|---|---|---|
-| `agent.w_temperature` | τ | teacher-marginal softmax temperature |
-| `agent.eta_temperature` | η | value-aware BC temperature |
-| `agent.n_student` / `agent.n_teacher` | N / M | one-step / reference samples per state |
-| `agent.sinkhorn_eps` / `agent.sinkhorn_iters` | ε / T | Sinkhorn regularization & iterations |
-| `agent.lambda_vbc` / `agent.lambda_distill` | λ_VBC / λ_distill | loss weights |
-| `agent.lambda_q` | λ_q | (ablation only; default 0) direct critic-max term |
-| `agent.use_vabc_td_target` | y^VaBC | VaBC TD target variant |
-| `agent.q_agg` | — | `mean` (default) or `min` (CDQL, used for adroit + antmaze-{large,giant}) |
-| `agent.discount` | γ | per-task override |
-
-Env templates ([`configs/env/`](configs/env/)) take an `env.env_name` override
-to specialize a base template (e.g. `env=ogbench_state` +
-`env.env_name=cube-double-play-singletask-task2-v0`). The five templates cover
-all task families in the paper.
+| Config key                        | Paper symbol | Meaning                                                          |
+|-----------------------------------|--------------|------------------------------------------------------------------|
+| `agent.w_temperature`             | τ            | teacher-marginal softmax temperature                             |
+| `agent.eta_temperature`           | η            | value-aware BC temperature                                       |
+| `agent.n_student` / `n_teacher`   | N / M        | one-step / reference samples per state                           |
+| `agent.sinkhorn_eps` / `_iters`   | ε / T        | entropic regularization & Sinkhorn iterations                    |
+| `agent.lambda_vbc` / `_distill`   | λ_VBC / λ_d  | loss weights                                                     |
+| `agent.q_agg`                     | —            | `mean` (default) or `min` (CDQL — antmaze-{large,giant}, adroit) |
+| `agent.use_vabc_td_target`        | y^VaBC       | VaBC TD target variant (paper Tab. 3)                            |
+| `agent.discount`                  | γ            | per-task override                                                |
 
 ---
 
@@ -241,55 +223,30 @@ all task families in the paper.
 
 WandB projects collect runs by experiment family:
 
-| Project | Source |
-|---|---|
-| `fpot_ogbench_benchmark` | `experiments/benchmarks/ogbench/**/*.yaml` |
-| `fpot_d4rl_benchmark`    | `experiments/benchmarks/d4rl/**/*.yaml` |
-| `fpot_ablation_nm`       | `experiments/ablations/nm_*.yaml` |
-| `fpot_ablation_sensitivity` | `experiments/ablations/sensitivity_*.yaml` |
-| `fpot_ablation_qmax`     | `experiments/ablations/qmax_*.yaml` |
-| `fpot_online`            | `experiments/online/*.yaml` |
+| Project                  | Source                                    |
+|--------------------------|-------------------------------------------|
+| `fpot_ogbench_benchmark` | `experiments/benchmarks/ogbench/**`       |
+| `fpot_d4rl_benchmark`    | `experiments/benchmarks/d4rl/**`          |
+| `fpot_online`            | `experiments/online/*`                    |
 
-Each run is named `<task> | <swept-axes> | s<seed>` (offline-to-online runs
-prefix `O2O |`). Tags: `task:<name>`, `seed:<n>`, `tau:<v>`, `eta:<v>`, plus
-any swept axes (e.g. `lq:0.1`, `N:16 M:64`, `off2on`).
+Run name format: `<task> | <swept-axes> | s<seed>` (offline-to-online runs
+prefix `O2O |`). Tags include `task:<name>`, `seed:<n>`, `tau:<v>`, `eta:<v>`.
 
-Disable on-disk artifacts (csv / config / checkpoints) per-run by adding to
-the sweep yaml's `fixed:` block:
-
-```yaml
-fixed:
-  logging.save_csv: false
-  logging.save_config: false
-  logging.save_checkpoint: false
-```
-
----
-
-## Outputs
-
-By default each run writes to:
-
-```
-outputs/<env_name>/<sweep_name>/<hp_subdir>/seed_<N>/run_NN/
-```
-
+By default each run writes to `outputs/<env_name>/<sweep>/<hp_subdir>/seed_<N>/run_NN/`
 containing `metrics.csv`, `config.yaml`, `config.json`, and (if
-`logging.save_checkpoint=true`) `final_agent/params_0.pkl`. The output root is
-`outputs/` relative to the working directory; change it via
-`logging.root_dir=/path/to/outputs`.
+`logging.save_checkpoint=true`) `final_agent/params_0.pkl`.
 
 ---
 
 ## Common issues
 
-| Symptom | Fix |
-|---|---|
-| `ModuleNotFoundError: No module named 'jax'` | Wrong conda env. Activate `fpot-ogbench` or `fpot-d4rl`. |
-| D4RL: `Missing path to your environment variable .../usr/lib/nvidia` | `mujoco_py` cannot find NVIDIA driver libs; add `/usr/lib/nvidia` to `LD_LIBRARY_PATH`. |
-| `Unable to load cuSPARSE` | JAX cannot find its CUDA wheels. Verify `JAX_NVIDIA_DIR` is set as in [Installation](#installation). |
-| D4RL: `OSError: Unable to synchronously open file ...` | Corrupted dataset under `~/.d4rl/datasets/`. Delete and re-download. (Race: when launching many seeds at once on a fresh machine, run one job to download first, then the rest.) |
-| Hydra: `Could not override 'env.env_name'` | Ensure the yaml has a base template (`env: ogbench_state` or similar) in its `fixed:` block before any `env.env_name:` override. |
+| Symptom                                                | Fix                                                                                          |
+|--------------------------------------------------------|----------------------------------------------------------------------------------------------|
+| `fatal error: GL/glew.h: No such file or directory` during first `import mujoco_py` | `conda install -c conda-forge glew patchelf` (the install step in §2). |
+| `Missing path to your environment variable .../usr/lib/nvidia` | `mujoco_py` cannot find NVIDIA driver libs; add `/usr/lib/nvidia` to `LD_LIBRARY_PATH`.    |
+| `Unable to load cuSPARSE`                              | JAX cannot find its CUDA wheels. Verify `JAX_NVIDIA_DIR` is set as in [Installation](#3-runtime-exports-per-shell). |
+| D4RL `OSError: Unable to synchronously open file ...` | Corrupted dataset under `~/.d4rl/datasets/`. Delete and re-download.                         |
+| Hydra: `Could not override 'env.env_name'`             | Add a base template (`env: ogbench_state` etc.) to the yaml's `fixed:` block first.          |
 
 ---
 

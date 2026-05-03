@@ -1,29 +1,4 @@
-"""
-FPOT agent — Flow Policy via Optimal Transport.
-
-Implements the algorithm in Sec. 4 of the paper:
-
-    L_actor = lambda_vbc     * L_ref         (value-aware reference flow matching)
-            + lambda_distill * L_distill     (transport-guided one-step distillation)
-            + lambda_q       * L_qmax        (ablation only; default 0)
-
-    L_Q = TD loss against target_critic, optionally with the VaBC TD target
-          y^VaBC = r + (gamma/2) [Q(s', mu_theta(s',z)) + Q(s', mu_omega(s',z))]
-
-Gradient routes (Sec. 4):
-    reference (omega) <- L_ref           (g_eta-weighted flow matching against dataset actions)
-    one-step  (theta) <- L_distill (+ lambda_q * L_qmax when enabled)
-    critic    (phi)   <- L_Q only
-
-Transport (App. C):
-    Per state, sample N one-step samples and M reference samples.
-    Student marginal p_i = 1/N (uniform).
-    Reference marginal q_j = softmax(Q(s, a_j) / tau).
-    Cost C_ij = ||a_i^theta - a_j^omega||^2, batchwise normalized.
-    Balanced entropic Sinkhorn in log domain for `sinkhorn_iters` steps,
-    entropic regularization `sinkhorn_eps`.
-    Hard row-anchor j_i* = argmax_j P*_{ij}; distillation weight P*_{i, j_i*}.
-"""
+"""FPOT agent — Flow Policy via Optimal Transport (paper Sec. 4)."""
 import copy
 from typing import Any
 
@@ -44,19 +19,15 @@ class FPOTAgent(flax.struct.PyTreeNode):
     network: Any
     config: Any = nonpytree_field()
 
-    # ------------------------------------------------------------------
-    # Critic-aggregation helpers (used by both critic and actor losses)
-    # ------------------------------------------------------------------
+    # ---- Critic aggregation -----------------------------------------------
 
     def _critic_agg(self, observations, actions, params, is_encoded=False):
-        """Evaluate critic ensemble and aggregate (mean or min)."""
         qs = self.network.select('critic')(observations, actions=actions, params=params, is_encoded=is_encoded)
         if qs.ndim == 2:
             return qs.min(axis=0) if self.config['q_agg'] == 'min' else qs.mean(axis=0)
         return qs
 
     def _critic_with_std(self, observations, actions, params):
-        """Evaluate critic ensemble, return (aggregated, std)."""
         qs = self.network.select('critic')(observations, actions=actions, params=params)
         if qs.ndim == 2:
             agg = qs.min(axis=0) if self.config['q_agg'] == 'min' else qs.mean(axis=0)
@@ -64,9 +35,7 @@ class FPOTAgent(flax.struct.PyTreeNode):
             return agg, std
         return qs, jnp.zeros_like(qs)
 
-    # ------------------------------------------------------------------
-    # Internal action helpers (called within JIT contexts, take pre-gen noises)
-    # ------------------------------------------------------------------
+    # ---- Action sampling --------------------------------------------------
 
     def _sample_from_onestep(self, observations, noises, params=None):
         if params is None:
@@ -89,9 +58,7 @@ class FPOTAgent(flax.struct.PyTreeNode):
             actions = actions + vels / self.config['flow_steps']
         return jnp.clip(actions, -1, 1)
 
-    # ------------------------------------------------------------------
-    # Critic (TD)
-    # ------------------------------------------------------------------
+    # ---- Critic loss (TD) -------------------------------------------------
 
     def critic_loss(self, batch, grad_params, rng):
         rng, student_rng, teacher_rng = jax.random.split(rng, 3)
@@ -140,9 +107,7 @@ class FPOTAgent(flax.struct.PyTreeNode):
             'target_q_mean':  target_q.mean(),
         }
 
-    # ------------------------------------------------------------------
-    # Value-aware reference flow (VaBC)
-    # ------------------------------------------------------------------
+    # ---- Value-aware reference flow (VaBC) --------------------------------
 
     def _critic_eval_target(self, observations, actions):
         qs = self.network.select('target_critic')(observations, actions)
@@ -151,13 +116,12 @@ class FPOTAgent(flax.struct.PyTreeNode):
         return qs
 
     def _vabc_guidance(self, q_data, q_ref, q_scale):
-        """g_eta(s,a,z): 2-class softmax between Q(s,a) and Q(s, mu_theta(s,z))."""
+        # g_eta = softmax([Q(s,a), Q(s, mu_theta(s,z))] / eta), select dataset slot.
         scale = q_scale / self.config['eta_temperature']
         logits = jnp.stack([scale * q_data, scale * q_ref], axis=-1)
         return jax.nn.softmax(logits, axis=-1)[..., 0]
 
     def vabc_loss(self, batch, grad_params, rng):
-        """Value-aware flow-matching loss for the reference policy mu_omega."""
         batch_size, action_dim = batch['actions'].shape
         rng, x_rng, t_rng, ref_rng = jax.random.split(rng, 4)
 
@@ -199,28 +163,23 @@ class FPOTAgent(flax.struct.PyTreeNode):
         }
         return loss, info
 
-    # ------------------------------------------------------------------
-    # One-step policy
-    # ------------------------------------------------------------------
+    # ---- One-step policy --------------------------------------------------
 
     def one_step_actions(self, observations, noises, grad_params=None):
         return self.network.select('actor_onestep')(
             observations, noises, params=grad_params,
         )
 
-    # ------------------------------------------------------------------
-    # OT primitives (balanced entropic Sinkhorn, log-domain)
-    # ------------------------------------------------------------------
+    # ---- Entropic OT (log-domain Sinkhorn) --------------------------------
 
     def _cost_matrix(self, student_actions, teacher_actions):
-        """Squared-L2 cost, normalized by batchwise mean (paper: divide by c_bar)."""
+        # Squared-L2 cost, normalized by batchwise mean (paper: divide by c_bar).
         diff = student_actions[:, :, None, :] - teacher_actions[:, None, :, :]
         cost = jnp.sum(diff * diff, axis=-1)
         scale = jnp.mean(cost, axis=(-2, -1), keepdims=True) + 1e-8
         return cost / scale
 
     def _sinkhorn(self, cost, p, w, eps_ot, iters, clip=1e-8):
-        """Balanced Sinkhorn — exact row and column marginal matching."""
         B, N, M = cost.shape
         p = jnp.clip(p, clip, 1.0)
         p = p / p.sum(-1, keepdims=True)
@@ -248,7 +207,7 @@ class FPOTAgent(flax.struct.PyTreeNode):
         return jnp.exp(logP)
 
     def _hard_anchor(self, P, teacher_actions):
-        """j_i* = argmax_j P*_{ij}; return selected anchor, mass, and indices."""
+        # Row-wise hard assignment: j_i* = argmax_j P*_{ij}.
         j_star = jnp.argmax(P, axis=-1)
         selected_mass = jnp.take_along_axis(
             P, j_star[..., None], axis=-1,
@@ -257,13 +216,11 @@ class FPOTAgent(flax.struct.PyTreeNode):
         return anchor, selected_mass, j_star
 
     def _teacher_marginal(self, q_teacher):
-        """q_j = softmax(Q(s, a_j) / tau) — value-weighted reference-policy marginal."""
+        # Value-weighted reference marginal q_j = softmax(Q / tau).
         tau = jnp.asarray(self.config['w_temperature'], dtype=q_teacher.dtype)
         return jax.nn.softmax(q_teacher / tau, axis=-1)
 
-    # ------------------------------------------------------------------
-    # Actor loss (VaBC reference + transport-guided distillation)
-    # ------------------------------------------------------------------
+    # ---- Actor loss -------------------------------------------------------
 
     def actor_loss(self, batch, grad_params, rng):
         B, act_dim = batch['actions'].shape
@@ -356,9 +313,7 @@ class FPOTAgent(flax.struct.PyTreeNode):
         }
         return actor_loss, metrics
 
-    # ------------------------------------------------------------------
-    # Combined loss & update
-    # ------------------------------------------------------------------
+    # ---- Combined loss & update -------------------------------------------
 
     @jax.jit
     def total_loss(self, batch, grad_params, rng=None):
@@ -391,9 +346,7 @@ class FPOTAgent(flax.struct.PyTreeNode):
         new_network = self.target_update(new_network, 'critic')
         return self.replace(network=new_network, rng=new_rng), info
 
-    # ------------------------------------------------------------------
-    # Inference
-    # ------------------------------------------------------------------
+    # ---- Inference --------------------------------------------------------
 
     @jax.jit
     def sample_actions(self, observations, seed=None, grad_params=None):
@@ -413,9 +366,7 @@ class FPOTAgent(flax.struct.PyTreeNode):
         )
         return self._sample_from_flow(observations, noises, params=params)
 
-    # ------------------------------------------------------------------
-    # Construction
-    # ------------------------------------------------------------------
+    # ---- Construction -----------------------------------------------------
 
     @classmethod
     def create(cls, seed, ex_observations, ex_actions, config):

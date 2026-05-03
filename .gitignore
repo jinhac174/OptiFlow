@@ -26,3 +26,4 @@ paper.txt
 # External reference checkout (not tracked in this repo)
 fql/
 debug_checkpoints/
+HANDOFF.md

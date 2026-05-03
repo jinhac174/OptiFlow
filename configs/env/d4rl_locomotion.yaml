@@ -1,6 +1,0 @@
-# Base config for D4RL locomotion (hopper / halfcheetah / walker2d).
-name: d4rl_locomotion
-env_name: ???
-frame_stack: null
-action_clip_eps: 1.0e-5
-antmaze_reward_mode: null

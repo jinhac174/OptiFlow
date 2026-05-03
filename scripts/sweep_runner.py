@@ -1,27 +1,8 @@
-"""sweep_runner.py — translate a sweep yaml into concrete train.py invocations.
+"""Resolve a sweep yaml + idx into a concrete train.py invocation.
 
-Cartesian-product iteration order
-----------------------------------
-Keys are taken from the ``sweep:`` block in **declaration order** (PyYAML
-preserves insertion order for mappings in Python 3.7+).  The FIRST key is the
-outermost loop (changes slowest) and the LAST key is the innermost loop
-(changes fastest).  This matches numpy/itertools.product convention.
-
-Example — sweep keys [env, agent.w_temperature, seed] with sizes [3, 2, 2]:
-  idx 0  → env[0]  w_temperature[0]  seed[0]
-  idx 1  → env[0]  w_temperature[0]  seed[1]
-  idx 2  → env[0]  w_temperature[1]  seed[0]
-  ...
-  idx 11 → env[2]  w_temperature[1]  seed[1]
-
-Commands
----------
-  python scripts/sweep_runner.py count --sweep <yaml>
-      Prints the integer total number of jobs (Cartesian product size).
-
-  python scripts/sweep_runner.py run --sweep <yaml> --idx <int> [--dry-run]
-      Resolves overrides for job <idx>, prints the full train.py command, then
-      exec()s it (unless --dry-run is set, in which case it only prints).
+Sweep keys iterate in declaration order: first key = outermost loop (slowest),
+last key = innermost (fastest). Use `count` to query total jobs and `run` to
+exec one (with `--dry-run` to print the command without executing).
 """
 
 import argparse
@@ -33,9 +14,7 @@ from pathlib import Path
 import yaml
 
 
-# ---------------------------------------------------------------------------
-# Sweep loading & product
-# ---------------------------------------------------------------------------
+# ---- Sweep loading & product -----------------------------------------------
 
 def load_sweep(path: str) -> dict:
     with open(path) as f:
@@ -43,7 +22,6 @@ def load_sweep(path: str) -> dict:
 
 
 def iter_product(sweep_axes: dict):
-    """Yield (key, value) lists for every cell in the Cartesian product."""
     keys = list(sweep_axes.keys())
     value_lists = [sweep_axes[k] for k in keys]
     for combo in itertools.product(*value_lists):
@@ -58,7 +36,6 @@ def count_jobs(sweep_axes: dict) -> int:
 
 
 def explicit_jobs(cfg: dict) -> list[dict]:
-    """Return explicitly enumerated jobs, if the sweep yaml defines them."""
     jobs = cfg.get("jobs")
     if jobs is None:
         return []
@@ -78,7 +55,6 @@ def total_jobs(cfg: dict) -> int:
 
 
 def resolve_overrides(cfg: dict, idx: int) -> list[str]:
-    """Return the override list for job index ``idx``."""
     jobs = explicit_jobs(cfg)
     n = total_jobs(cfg)
     if not (0 <= idx < n):
@@ -102,34 +78,26 @@ def resolve_overrides(cfg: dict, idx: int) -> list[str]:
 
 
 def build_command(cfg: dict, idx: int, extra_overrides=None) -> list[str]:
-    """Build the full argv list for one job (does NOT include 'python')."""
     overrides = resolve_overrides(cfg, idx)
 
-    # Always inject +exp=<sweep_name> so wandb gets an exp: tag
-    sweep_name = cfg["name"]
-    overrides.append(f"+exp={sweep_name}")
+    overrides.append(f"+exp={cfg['name']}")
 
-    # Inject wandb_project from yaml if present (overrides default cfg.env.name routing)
     wandb_project = cfg.get("wandb_project")
     if wandb_project:
         overrides.append(f"+logging.wandb_project={wandb_project}")
 
+    # Tell train.py which keys are sweep-fixed (so wandb name/group skip them).
     fixed_keys = list((cfg.get("fixed") or {}).keys())
     if fixed_keys:
         overrides.append("+logging.fixed_keys=[" + ",".join(fixed_keys) + "]")
 
-    # Append any --override key=value pairs (applied last → highest priority)
     if extra_overrides:
         overrides.extend(extra_overrides)
 
-    # Hydra needs the script path; we invoke scripts/train.py from repo root
-    cmd = [sys.executable, "scripts/train.py"] + overrides
-    return cmd
+    return [sys.executable, "scripts/train.py"] + overrides
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
+# ---- CLI -------------------------------------------------------------------
 
 def cmd_count(args):
     cfg = load_sweep(args.sweep)

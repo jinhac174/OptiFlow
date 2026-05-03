@@ -1,5 +1,5 @@
 name: fpot_online_pen_cloned
-description: Offline-to-online FPOT on D4RL pen-cloned-v1 (1M+1M, seeds 1-8; CDQ=true)
+description: Offline-to-online FPOT on D4RL pen-cloned-v1 (1M offline + 1M online, seeds 1-8; CDQ=true)
 wandb_project: fpot_online
 
 sweep:
