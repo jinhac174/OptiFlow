@@ -39,10 +39,6 @@ lambda_q: 0.0        # ablation only (direct Q-max on the deployed one-step poli
 one_step_tanh_squash: false
 one_step_fc_scale: 1.0e-2
 
-# ---- Online fine-tuning ------------------------------------------------
-exploration_noise_std: 0.0
-exploration_noise_clip: 0.0
-
 # ---- TD target ---------------------------------------------------------
 # When true, use the VaBC TD target y^VaBC = r + (gamma/2)[Q(s', mu_theta) + Q(s', mu_omega)].
 use_vabc_td_target: false

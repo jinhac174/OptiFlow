@@ -1,9 +1,10 @@
 """
 FPOT training script.
 
-Hydra entry point. The agent class is selected by `cfg.agent.agent_file`:
-    agent_fpot   -> FPOTAgent              (offline)
-    agent_online -> OnlineFPOTAgent        (offline-to-online)
+Hydra entry point. The agent class is `FPOTAgent`; the legacy alias
+`agent_file: agent_online` from older sweep yamls is accepted and routed to
+the same class (online phase has no agent-side specialization, only a
+different training loop in `offline_to_online_train`).
 
 Usage:
     python scripts/train.py env=cube_single_play_task1 seed=1
@@ -28,7 +29,6 @@ import numpy as np
 from omegaconf import DictConfig, OmegaConf
 
 from FPOT.agent_fpot import FPOTAgent
-from FPOT.agent_online import OnlineFPOTAgent
 from envs.env_utils import make_env_and_datasets
 from utils.evaluation import evaluate
 from utils.replay_buffer import ReplayBuffer
@@ -458,10 +458,10 @@ def build_env_kwargs(cfg: DictConfig) -> Dict:
 
 
 def load_agent_class(agent_file: str):
-    if agent_file == "agent_fpot":
+    # `agent_online` is a legacy alias kept for older sweep yamls; it routes to
+    # FPOTAgent because the online phase needs no agent-side specialization.
+    if agent_file in ("agent_fpot", "agent_online"):
         return FPOTAgent
-    if agent_file == "agent_online":
-        return OnlineFPOTAgent
     raise ValueError(f"Unknown agent_file: {agent_file}")
 
 
@@ -571,161 +571,43 @@ def offline_train(cfg: DictConfig, run_dir: Path):
 # Online training (gymnasium API; handles both OGBench and D4RL)
 # ------------------------------------------------------------------
 
-def online_train(cfg: DictConfig, run_dir: Path):
-    import jax
-    from envs.vec_utils_gymnasium import make_vec_collection_env_gym, make_eval_env_gym
-
-    env_kwargs = build_env_kwargs(cfg)
-    seed = int(cfg.seed)
-    num_envs = int(cfg.train.get("num_collection_envs", 8))
-
-    vec_env = make_vec_collection_env_gym(
-        env_name=env_kwargs["env_name"],
-        num_envs=num_envs,
-        base_seed=seed + 1000,
-        antmaze_reward_mode=env_kwargs.get("antmaze_reward_mode", None),
-    )
-    obs, _ = vec_env.reset(seed=[seed + 1000 + i for i in range(num_envs)])
-
-    eval_env = make_eval_env_gym(
-        env_kwargs["env_name"],
-        antmaze_reward_mode=env_kwargs.get("antmaze_reward_mode", None),
-    )
-
-    obs_dim    = obs.shape[1]
-    action_dim = vec_env.single_action_space.shape[0]
-
-    AgentClass = load_agent_class(cfg.agent.get("agent_file", "agent_online"))
-    agent_cfg  = build_agent_config(cfg)
-
-    agent = AgentClass.create(
-        seed=seed,
-        ex_observations=np.zeros((2, obs_dim), dtype=np.float32),
-        ex_actions=np.zeros((2, action_dim), dtype=np.float32),
-        config=agent_cfg,
-    )
-
-    buffer = ReplayBuffer(
-        capacity=int(cfg.train.replay_buffer_capacity),
-        obs_dim=obs_dim,
-        action_dim=action_dim,
-    )
-
-    csv_logger = make_logger(cfg, run_dir)
-    best_score = -np.inf
-    max_steps      = int(cfg.train.max_steps)
-    batch_size     = int(cfg.train.batch_size)
-    log_interval   = int(cfg.train.log_interval)
-    eval_interval  = int(cfg.train.eval_interval)
-    save_interval  = int(cfg.train.save_interval)
-    warmup_steps   = int(cfg.train.warmup_random_steps)
-    start_training = int(cfg.train.start_training_step)
-    utd_ratio      = int(cfg.train.utd_ratio)
-
-    explore_rng = jax.random.PRNGKey(seed + 100)
-    env_steps = 0
-    _just_reset = np.zeros(num_envs, dtype=bool)
-
-    for step in range(1, max_steps + 1):
-        if env_steps < warmup_steps:
-            actions = np.array([vec_env.single_action_space.sample() for _ in range(num_envs)])
-        else:
-            explore_rng, act_rng = jax.random.split(explore_rng)
-            actions = np.asarray(agent.sample_actions_explore(obs, seed=act_rng))
-
-        next_obs, rewards, terms, truncs, infos = vec_env.step(actions)
-
-        # gymnasium 1.2 AutoresetMode.NEXT_STEP: when an episode ends, the
-        # NEXT step's transition is fake (env auto-resets, action ignored).
-        # Skip storing those fake transitions.
-        valid = ~_just_reset
-        if valid.any():
-            buffer.add_batch(
-                obs[valid],
-                actions[valid],
-                rewards[valid],
-                next_obs[valid],
-                terms[valid].astype(np.float32),
-            )
-            env_steps += int(valid.sum())
-
-        _just_reset = np.logical_or(terms, truncs)
-        obs = next_obs
-
-        if env_steps >= start_training and len(buffer) >= batch_size:
-            for _ in range(utd_ratio):
-                batch = buffer.sample(batch_size)
-                batch["global_step"] = np.int32(step)
-                batch = {k: jnp.asarray(v) for k, v in batch.items()}
-                agent, info = agent.update(batch)
-
-            if step % log_interval == 0:
-                row = {f"train/{k}": to_scalar(v) for k, v in flatten_dict(dict(info)).items()}
-                row["train/buffer_size"] = len(buffer)
-                row["train/env_steps"] = env_steps
-                csv_logger.log(row, step)
-                log_to_wandb(row, step)
-
-        if step % eval_interval == 0:
-            score, stats = evaluate_and_log(
-                agent=agent, eval_env=eval_env, cfg=cfg, run_dir=run_dir,
-                csv_logger=csv_logger, step=step, best_score=best_score,
-            )
-            ret = stats.get("episode.normalized_return", stats.get("episode.return", float("nan")))
-            print(f"[step {step:>7d}] return: {ret:.2f}  (best: {best_score:.2f})  env_steps: {env_steps}", flush=True)
-            if score > best_score:
-                best_score = score
-
-        if cfg.logging.save_checkpoint and step % save_interval == 0:
-            save_checkpoint(agent, run_dir / f"agent_step_{step}")
-
-    vec_env.close()
-    if cfg.logging.save_checkpoint:
-        save_checkpoint(agent, run_dir / "final_agent")
-
-
 # ------------------------------------------------------------------
 # Offline-to-online training (single process, continuous step axis)
 # ------------------------------------------------------------------
 
 def offline_to_online_train(cfg: DictConfig, run_dir: Path):
-    """Run offline phase (1..T_off) and online phase (T_off+1..T_off+T_on) in one process.
+    """FQL-style offline-to-online training in a single process.
 
-    Supports two modes for online batch sampling:
-      - balanced_sampling=False (default, matches FPOT paper): single unified
-        replay buffer pre-filled with the offline dataset; online transitions
-        are appended (circular). The critic and actor see one mixed
-        distribution. This matches the paper's "unified replay buffer that
-        already contains the offline dataset" description.
-      - balanced_sampling=True: FQL-style — keep offline dataset and online
-        buffer separate, sample 50/50 each train step. Useful when a strict
-        guarantee of offline-distribution data per batch is desired, but
-        deviates from the paper's offline-to-online setup.
+    Phases share one `agent` and one wandb step axis (offline 1..T_off, online
+    T_off+1..T_off+T_on). The online phase mirrors `fql/main.py`:
 
-    Supports resuming from a saved checkpoint to skip the offline phase:
-      - cfg.train.resume_from: filesystem path to an agent checkpoint dir.
-        When set, the offline phase is skipped and the agent is restored from
-        the checkpoint, then the online phase begins from that state.
+      - single env (no vec env);
+      - one transition collected per step, one `agent.update` per step;
+      - one unified replay buffer pre-seeded with the offline dataset, online
+        transitions appended uniformly (no balanced sampling, no warmup);
+      - mask = 1 - terminated, so truncation does not break bootstrapping;
+      - action sampled via `agent.sample_actions(ob, seed)` — fresh latent z
+        per call provides exploration; no extra Gaussian noise.
+
+    Optionally resumes from a saved checkpoint via `cfg.train.resume_from`.
     """
     import jax
-    from envs.vec_utils_gymnasium import make_vec_collection_env_gym, make_eval_env_gym
+    from envs.vec_utils_gymnasium import make_eval_env_gym
 
     env_kwargs = build_env_kwargs(cfg)
     seed = int(cfg.seed)
 
-    # ========== Setup (offline dataset always loaded; needed for balanced sampling
-    #            and for agent init, even when resuming) ==========
+    # ----- Offline dataset + agent init -----
     _, eval_env_offline, train_dataset, _ = make_env_and_datasets(**env_kwargs)
     if hasattr(train_dataset, "set_seed"):
         train_dataset.set_seed(seed)
-
     if cfg.env.get("frame_stack", None) is not None:
         train_dataset.frame_stack = int(cfg.env.frame_stack)
     if cfg.agent.get("encoder", None) is not None:
         train_dataset.p_aug = float(cfg.agent.get("p_aug", 0.5))
 
     ex_batch = train_dataset.sample(2)
-    AgentClass = load_agent_class(cfg.agent.get("agent_file", "agent_online"))
+    AgentClass = load_agent_class(cfg.agent.get("agent_file", "agent_fpot"))
     agent = AgentClass.create(
         seed=seed,
         ex_observations=ex_batch["observations"],
@@ -742,16 +624,15 @@ def offline_to_online_train(cfg: DictConfig, run_dir: Path):
     T_off          = int(cfg.train.offline_max_steps)
     T_on           = int(cfg.train.online_max_steps)
 
-    # ========== Resume from checkpoint? ==========
+    # ----- Resume from checkpoint? -----
     resume_from = cfg.train.get("resume_from", None)
     if resume_from is not None and str(resume_from).strip() != "":
         from utils.flax_utils import restore_agent
         print(f"=== Resuming from checkpoint: {resume_from} ===", flush=True)
-        # restore_agent uses glob; pass the parent dir, then it appends params_0.pkl
         agent = restore_agent(agent, str(resume_from), 0)
         print(f"=== Skipping offline phase, jumping to online phase ===", flush=True)
     else:
-        # ---------- Offline phase ----------
+        # ----- Offline phase -----
         print(f"=== Offline phase: steps 1..{T_off} ===", flush=True)
         for step in range(1, T_off + 1):
             batch = train_dataset.sample(batch_size)
@@ -761,7 +642,6 @@ def offline_to_online_train(cfg: DictConfig, run_dir: Path):
 
             if step % log_interval == 0:
                 row = {f"train/{k}": to_scalar(v) for k, v in flatten_dict(dict(info)).items()}
-                row["train/env_steps"] = 0
                 row["train/phase"] = 0
                 csv_logger.log(row, step)
                 log_to_wandb(row, step)
@@ -779,128 +659,69 @@ def offline_to_online_train(cfg: DictConfig, run_dir: Path):
             if cfg.logging.save_checkpoint and step % save_interval == 0:
                 save_checkpoint(agent, run_dir / f"agent_step_{step}")
 
-        # Save offline endpoint when checkpointing is enabled (skipped on disk-constrained
-        # single-process runs that go straight into the online phase).
         if cfg.logging.save_checkpoint:
             save_checkpoint(agent, run_dir / f"agent_step_{T_off}")
 
-    # ========== Online phase setup ==========
-    print(f"=== Online phase: steps {T_off+1}..{T_off+T_on} ===", flush=True)
-    num_envs = int(cfg.train.num_collection_envs)
-    vec_env = make_vec_collection_env_gym(
-        env_name=env_kwargs["env_name"],
-        num_envs=num_envs,
-        base_seed=seed + 1000,
-        antmaze_reward_mode=env_kwargs.get("antmaze_reward_mode", None),
-    )
-    obs, _ = vec_env.reset(seed=[seed + 1000 + i for i in range(num_envs)])
-
+    # ----- Online phase setup (single env) -----
     eval_env_online = make_eval_env_gym(
         env_kwargs["env_name"],
         antmaze_reward_mode=env_kwargs.get("antmaze_reward_mode", None),
     )
-
-    obs_dim    = obs.shape[1]
-    action_dim = vec_env.single_action_space.shape[0]
-
-    online_buffer = ReplayBuffer(
-        capacity=int(cfg.train.replay_buffer_capacity),
-        obs_dim=obs_dim,
-        action_dim=action_dim,
+    env = make_eval_env_gym(
+        env_kwargs["env_name"],
+        antmaze_reward_mode=env_kwargs.get("antmaze_reward_mode", None),
+        seed=seed + 1000,
     )
 
-    balanced_sampling = bool(cfg.train.get("balanced_sampling", False))
+    obs_dim    = env.observation_space.shape[0]
+    action_dim = env.action_space.shape[0]
 
-    if balanced_sampling:
-        # FQL-style: keep offline dataset + online buffer separate,
-        # sample 50/50 each train step. The online buffer is initially EMPTY.
-        print(f"=== Balanced sampling enabled (50/50 offline_dataset + online_buffer) ===", flush=True)
-    else:
-        # Legacy: pre-fill the online buffer with offline transitions.
-        if bool(cfg.train.get("seed_replay_with_offline", True)):
-            print("Seeding online buffer with offline transitions...", flush=True)
-            n_seed = min(len(train_dataset), online_buffer.capacity)
-            online_buffer.add_batch(
-                np.asarray(train_dataset["observations"][:n_seed], dtype=np.float32),
-                np.asarray(train_dataset["actions"][:n_seed], dtype=np.float32),
-                np.asarray(train_dataset["rewards"][:n_seed], dtype=np.float32),
-                np.asarray(train_dataset["next_observations"][:n_seed], dtype=np.float32),
-                1.0 - np.asarray(train_dataset["masks"][:n_seed], dtype=np.float32),
-            )
-            print(f"Seeded {len(online_buffer)} transitions", flush=True)
+    capacity = max(int(cfg.train.replay_buffer_capacity), len(train_dataset) + T_on + 1)
+    buffer = ReplayBuffer(capacity=capacity, obs_dim=obs_dim, action_dim=action_dim)
 
-    warmup_steps   = int(cfg.train.warmup_random_steps)
-    start_training = int(cfg.train.start_training_step)
-    utd_ratio      = int(cfg.train.utd_ratio)
-    explore_rng    = jax.random.PRNGKey(seed + 100)
-    env_steps      = 0
-    _just_reset    = np.zeros(num_envs, dtype=bool)
+    n_seed = min(len(train_dataset), buffer.capacity)
+    print(f"Seeding replay buffer with {n_seed} offline transitions (capacity={capacity})...", flush=True)
+    buffer.add_batch(
+        np.asarray(train_dataset["observations"][:n_seed],      dtype=np.float32),
+        np.asarray(train_dataset["actions"][:n_seed],           dtype=np.float32),
+        np.asarray(train_dataset["rewards"][:n_seed],           dtype=np.float32),
+        np.asarray(train_dataset["next_observations"][:n_seed], dtype=np.float32),
+        1.0 - np.asarray(train_dataset["masks"][:n_seed],       dtype=np.float32),  # dones = 1 - masks
+    )
 
-    # ---------- Online phase ----------
+    print(f"=== Online phase: steps {T_off+1}..{T_off+T_on} ===", flush=True)
+    explore_rng = jax.random.PRNGKey(seed + 100)
+    done = True
+    ob = None
+
     for online_step in range(1, T_on + 1):
         global_step = T_off + online_step
 
-        if env_steps < warmup_steps:
-            actions = np.array([vec_env.single_action_space.sample() for _ in range(num_envs)])
-        else:
-            explore_rng, act_rng = jax.random.split(explore_rng)
-            actions = np.asarray(agent.sample_actions_explore(obs, seed=act_rng))
+        if done:
+            ob, _ = env.reset()
 
-        next_obs, rewards, terms, truncs, infos = vec_env.step(actions)
+        explore_rng, act_rng = jax.random.split(explore_rng)
+        action = np.asarray(agent.sample_actions(ob, seed=act_rng))
+        action = np.clip(action, -1.0, 1.0)
 
-        # gymnasium 1.2 AutoresetMode.NEXT_STEP: when an episode ends, the
-        # NEXT step's transition is fake (env auto-resets, action ignored).
-        # Skip storing those fake transitions.
-        valid = ~_just_reset
-        if valid.any():
-            online_buffer.add_batch(
-                obs[valid],
-                actions[valid],
-                rewards[valid],
-                next_obs[valid],
-                terms[valid].astype(np.float32),
-            )
-            env_steps += int(valid.sum())
+        next_ob, reward, terminated, truncated, _ = env.step(action)
+        done = bool(terminated) or bool(truncated)
 
-        _just_reset = np.logical_or(terms, truncs)
-        obs = next_obs
+        # mask = 1 - terminated  (truncation must not zero the bootstrap)
+        buffer.add(ob, action, float(reward), next_ob, bool(terminated))
+        ob = next_ob
 
-        # ---- Training step ----
-        # In balanced mode: require online buffer to have batch_size//2 samples.
-        # In legacy mode: require buffer to have batch_size samples.
-        min_online = batch_size // 2 if balanced_sampling else batch_size
-        ready = (env_steps >= start_training) and (len(online_buffer) >= min_online)
+        batch = buffer.sample(batch_size)
+        batch["global_step"] = np.int32(global_step)
+        batch = {k: jnp.asarray(v) for k, v in batch.items()}
+        agent, info = agent.update(batch)
 
-        if ready:
-            for _ in range(utd_ratio):
-                if balanced_sampling:
-                    half = batch_size // 2
-                    # Half from offline dataset (Dataset.sample returns dict with extra keys)
-                    off_batch = train_dataset.sample(half)
-                    # Half from online buffer
-                    on_batch = online_buffer.sample(half)
-                    # Concatenate the keys agent.update needs
-                    keys = ['observations', 'actions', 'rewards', 'next_observations', 'masks']
-                    batch = {
-                        k: np.concatenate([
-                            np.asarray(off_batch[k]), np.asarray(on_batch[k])
-                        ], axis=0)
-                        for k in keys
-                    }
-                else:
-                    batch = online_buffer.sample(batch_size)
-
-                batch["global_step"] = np.int32(global_step)
-                batch = {k: jnp.asarray(v) for k, v in batch.items()}
-                agent, info = agent.update(batch)
-
-            if global_step % log_interval == 0:
-                row = {f"train/{k}": to_scalar(v) for k, v in flatten_dict(dict(info)).items()}
-                row["train/buffer_size"] = len(online_buffer)
-                row["train/env_steps"] = env_steps
-                row["train/phase"] = 1
-                csv_logger.log(row, global_step)
-                log_to_wandb(row, global_step)
+        if global_step % log_interval == 0:
+            row = {f"train/{k}": to_scalar(v) for k, v in flatten_dict(dict(info)).items()}
+            row["train/buffer_size"] = len(buffer)
+            row["train/phase"] = 1
+            csv_logger.log(row, global_step)
+            log_to_wandb(row, global_step)
 
         if global_step % eval_interval == 0:
             score, stats = evaluate_and_log(
@@ -908,14 +729,13 @@ def offline_to_online_train(cfg: DictConfig, run_dir: Path):
                 csv_logger=csv_logger, step=global_step, best_score=best_score,
             )
             ret = stats.get("episode.normalized_return", stats.get("episode.return", float("nan")))
-            print(f"[online  {global_step:>7d}] return: {ret:.2f}  env_steps: {env_steps}", flush=True)
+            print(f"[online  {global_step:>7d}] return: {ret:.2f}  buffer: {len(buffer)}", flush=True)
             if score > best_score:
                 best_score = score
 
         if cfg.logging.save_checkpoint and global_step % save_interval == 0:
             save_checkpoint(agent, run_dir / f"agent_step_{global_step}")
 
-    vec_env.close()
     if cfg.logging.save_checkpoint:
         save_checkpoint(agent, run_dir / "final_agent")
 
@@ -937,8 +757,6 @@ def main(cfg: DictConfig):
 
     if cfg.train.mode == "offline":
         offline_train(cfg, run_dir)
-    elif cfg.train.mode == "online":
-        online_train(cfg, run_dir)
     elif cfg.train.mode == "offline_to_online":
         offline_to_online_train(cfg, run_dir)
     else:

@@ -10,24 +10,12 @@ log_interval:  5000
 eval_interval: 20000
 save_interval: 100000
 
-num_collection_envs:     8
+# Unified replay buffer (FQL-style, paper App. C.2): pre-seeded with the offline
+# dataset, online transitions are appended uniformly. Capacity is sized at run
+# time to max(this, dataset_size + online_max_steps + 1) so offline data is
+# never overwritten.
+replay_buffer_capacity: 2000000
 
-# Buffer sized so offline data is never overwritten during phase 2.
-# With 1M offline + 8M online (1M iters × 8 envs), 9M is enough.
-# Memory: ~6GB per process for humanoidmaze (69-dim obs).
-replay_buffer_capacity:  9000000
-
-# FQL-style: zero warmup, immediate use of offline-trained policy
-warmup_random_steps:     0
-start_training_step:     5000
-utd_ratio:               1
-seed_replay_with_offline: true
-
-# Default: FQL-style unified buffer (offline + online in one buffer, no distinction).
-# When false, batch is sampled directly from the unified buffer (matches FQL paper).
-# When true, batch is half from offline dataset, half from online buffer (balanced).
-balanced_sampling: false
-
-# Optional path to a saved agent checkpoint dir; when set, skip offline phase
-# and resume online training from this checkpoint.
+# Optional: skip the offline phase and resume online training from a saved
+# checkpoint dir.
 resume_from: null

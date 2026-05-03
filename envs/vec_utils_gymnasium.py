@@ -1,14 +1,10 @@
 """
-Gymnasium-based vectorized envs for online data collection.
+Gymnasium env factories for online interaction.
 
 Handles both OGBench singletask envs and D4RL envs (via shimmy GymV21 wrapper).
 Uses the gymnasium 5-tuple step API: obs, reward, terminated, truncated, info.
-
-Does NOT replace envs/vec_utils.py — that file still serves any old-gym code
-paths that may exist.
 """
 import gymnasium
-import numpy as np
 
 from envs.env_utils import EpisodeMonitor
 
@@ -40,27 +36,8 @@ def _make_d4rl_env(env_name, antmaze_reward_mode=None, seed=0):
     return env
 
 
-def _make_single_env_factory(env_name, antmaze_reward_mode, seed):
-    def _init():
-        if _is_ogbench_env(env_name):
-            return _make_ogbench_env(env_name, seed=seed)
-        return _make_d4rl_env(env_name, antmaze_reward_mode=antmaze_reward_mode, seed=seed)
-    return _init
-
-
-def make_vec_collection_env_gym(env_name, num_envs, base_seed, antmaze_reward_mode=None):
-    """K parallel envs using gymnasium.vector.SyncVectorEnv.
-
-    reset(seed=[...]) returns (obs_batch, info_batch).
-    step(actions) returns (obs, rewards, terminated, truncated, infos).
-    """
-    fns = [_make_single_env_factory(env_name, antmaze_reward_mode, base_seed + i)
-           for i in range(num_envs)]
-    return gymnasium.vector.SyncVectorEnv(fns)
-
-
 def make_eval_env_gym(env_name, antmaze_reward_mode=None, seed=12345):
-    """Single eval env (gymnasium API). Works with utils.evaluation.evaluate()."""
+    """Single env (gymnasium API). Used for both online collection and eval."""
     if _is_ogbench_env(env_name):
         return _make_ogbench_env(env_name, seed=seed)
     return _make_d4rl_env(env_name, antmaze_reward_mode=antmaze_reward_mode, seed=seed)

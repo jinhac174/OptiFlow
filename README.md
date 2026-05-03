@@ -26,8 +26,7 @@ hyperparameters live in [`experiments/`](experiments/).
 
 ```
 FPOT/                       # Algorithm code
-  agent_fpot.py             # offline FPOT agent (paper Sec. 4)
-  agent_online.py           # offline-to-online variant (paper App. C.2)
+  agent_fpot.py             # FPOT agent (paper Sec. 4 + App. C.2 online)
   common.py                 # shared critic helpers
 configs/                    # Hydra config groups
   config.yaml               # top-level defaults
