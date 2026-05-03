@@ -230,6 +230,8 @@ def _parse_overrides(overrides):
             continue  # meta-override, never a real ablation
         elif key in fixed_keys:
             continue  # swept-yaml fixed override, skip for name/group/tags
+        elif key in ('train.resume_from',):
+            continue  # filesystem path; not a hyperparameter, would exceed wandb's 64-char tag limit
         elif key.startswith('agent.') or key.startswith('train.'):
             prefix    = 'agent.' if key.startswith('agent.') else 'train.'
             short_key = key[len(prefix):]
