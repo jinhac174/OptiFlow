@@ -1,0 +1,20 @@
+name: fpot_offline_cube_double
+description: Offline-only FPOT on cube-double-play-task2, 1M steps, 8 seeds (saves final_agent for resume-online debug)
+wandb_project: fpot_offline_for_resume
+
+sweep:
+  seed: [1, 2, 3, 4, 5, 6, 7, 8]
+
+fixed:
+  env: ogbench_state
+  env.env_name: cube-double-play-singletask-task2-v0
+  agent: fpot
+  agent.w_temperature: 2.0
+  agent.eta_temperature: 0.01
+  agent.q_agg: mean
+  agent.use_vabc_td_target: true
+  agent.discount: 0.99
+  train: offline
+  train.max_steps: 1000000
+  train.eval_interval: 50000
+  logging.save_checkpoint: true
