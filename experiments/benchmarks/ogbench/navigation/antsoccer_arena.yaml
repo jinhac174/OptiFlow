@@ -19,5 +19,6 @@ fixed:
   agent.q_agg: mean
   agent.use_vabc_td_target: false
   agent.discount: 0.995
+  agent.critic_update_interval: 5
   train.max_steps: 1000000
   train.eval_interval: 20000

@@ -14,6 +14,7 @@ fixed:
   agent.q_agg: mean
   agent.use_vabc_td_target: false
   agent.discount: 0.995
+  agent.critic_update_interval: 5
   train: offline_to_online
   train.offline_max_steps: 1000000
   train.online_max_steps: 1000000

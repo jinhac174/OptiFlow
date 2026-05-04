@@ -251,6 +251,7 @@ Agent hyperparameters live in [`configs/agent/fpot.yaml`](configs/agent/fpot.yam
 | `agent.q_agg`                     | —            | `mean` (default) or `min` (CDQL — antmaze-{large,giant}, adroit) |
 | `agent.use_vabc_td_target`        | y^VaBC       | VaBC TD target variant (paper Tab. 3)                            |
 | `agent.discount`                  | γ            | per-task override                                                |
+| `agent.critic_update_interval`    | —            | 1 (default); 5 for antsoccer-arena per paper Tab. 2              |
 
 ---
 

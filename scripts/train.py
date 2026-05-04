@@ -474,6 +474,7 @@ def offline_train(cfg: DictConfig, run_dir: Path):
     log_interval  = int(cfg.train.log_interval)
     eval_interval = int(cfg.train.eval_interval)
     save_interval = int(cfg.train.save_interval)
+    critic_interval = int(cfg.agent.get("critic_update_interval", 1))
 
     # Optional explicit list of eval steps; overrides eval_interval cadence when set.
     eval_steps_cfg = cfg.train.get("eval_steps", None)
@@ -483,7 +484,10 @@ def offline_train(cfg: DictConfig, run_dir: Path):
         batch = train_dataset.sample(batch_size)
         batch["global_step"] = np.int32(step)
         batch = {k: jnp.asarray(v) for k, v in batch.items()}
-        agent, info = agent.update(batch)
+        if step % critic_interval == 0:
+            agent, info = agent.update(batch)
+        else:
+            agent, info = agent.update_actor_only(batch)
 
         if step % log_interval == 0:
             row = {f"train/{k}": to_scalar(v) for k, v in flatten_dict(dict(info)).items()}
@@ -546,6 +550,7 @@ def offline_to_online_train(cfg: DictConfig, run_dir: Path):
     save_interval  = int(cfg.train.save_interval)
     T_off          = int(cfg.train.offline_max_steps)
     T_on           = int(cfg.train.online_max_steps)
+    critic_interval = int(cfg.agent.get("critic_update_interval", 1))
 
     # ----- Resume from checkpoint? -----
     resume_from = cfg.train.get("resume_from", None)
@@ -561,7 +566,10 @@ def offline_to_online_train(cfg: DictConfig, run_dir: Path):
             batch = train_dataset.sample(batch_size)
             batch["global_step"] = np.int32(step)
             batch = {k: jnp.asarray(v) for k, v in batch.items()}
-            agent, info = agent.update(batch)
+            if step % critic_interval == 0:
+                agent, info = agent.update(batch)
+            else:
+                agent, info = agent.update_actor_only(batch)
 
             if step % log_interval == 0:
                 row = {f"train/{k}": to_scalar(v) for k, v in flatten_dict(dict(info)).items()}
@@ -639,7 +647,10 @@ def offline_to_online_train(cfg: DictConfig, run_dir: Path):
         batch = buffer.sample(batch_size)
         batch["global_step"] = np.int32(global_step)
         batch = {k: jnp.asarray(v) for k, v in batch.items()}
-        agent, info = agent.update(batch)
+        if global_step % critic_interval == 0:
+            agent, info = agent.update(batch)
+        else:
+            agent, info = agent.update_actor_only(batch)
 
         if global_step % log_interval == 0:
             row = {f"train/{k}": to_scalar(v) for k, v in flatten_dict(dict(info)).items()}

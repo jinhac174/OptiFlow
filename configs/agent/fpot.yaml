@@ -15,6 +15,11 @@ p_aug: 0.5
 
 q_agg: mean
 
+# Update the critic + target critic every N gradient steps. Default 1 (every
+# step). Paper Tab. 2 sets this to 5 for antsoccer-arena (FPOT only); the actor
+# update fires every step regardless.
+critic_update_interval: 1
+
 # ---- Transport (Sec. 4 / App. C) ---------------------------------------
 # n_student = N (one-step samples per state); n_teacher = M (reference samples).
 # w_temperature = tau in q_j = softmax(Q(s, a_j) / tau) (reference-policy marginal).

@@ -346,6 +346,20 @@ class FPOTAgent(flax.struct.PyTreeNode):
         new_network = self.target_update(new_network, 'critic')
         return self.replace(network=new_network, rng=new_rng), info
 
+    @jax.jit
+    def update_actor_only(self, batch):
+        # Actor-only step (paper Tab. 2 'every 5 steps' override for antsoccer):
+        # actor gradient flows; critic gradient is zero by construction (actor
+        # loss reads critic params under stop_gradient), so critic params don't
+        # move and target-critic Polyak is skipped.
+        new_rng, rng = jax.random.split(self.rng)
+        def loss_fn(grad_params):
+            a_loss, a_info = self.actor_loss(batch, grad_params, rng)
+            info = {f'actor/{k}': v for k, v in a_info.items()}
+            return a_loss, info
+        new_network, info = self.network.apply_loss_fn(loss_fn=loss_fn)
+        return self.replace(network=new_network, rng=new_rng), info
+
     # ---- Inference --------------------------------------------------------
 
     @jax.jit
