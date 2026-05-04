@@ -78,6 +78,25 @@ first key is the outermost loop (changes slowest), the last is the innermost.
 For online fine-tuning, set `train: offline_to_online` and `train.offline_max_steps`
 + `train.online_max_steps` (see `experiments/online/*.yaml`).
 
+### Two-phase chain (offline → resume → online)
+
+`experiments/online/*.yaml` runs offline + online in a single 2M-step process.
+For environments where a hard split is preferable (e.g. so the offline checkpoints
+land as artifacts before online starts), use `experiments/online/chain/`:
+
+```bash
+# Edit OFFLINE_YAMLS in scripts/run_chain.sh, then:
+nohup bash scripts/run_chain.sh > logs/local/chain.log 2>&1 &
+disown
+```
+
+The script (1) pre-downloads OGBench datasets serially, (2) runs each offline
+sweep, (3) calls `scripts/build_resume_yaml.py` to emit an online sweep yaml
+populated with `train.resume_from` per seed, and (4) runs the online sweeps.
+Generated runtime yamls land in `experiments/online/chain/runtime/<task>.yaml`
+(gitignored). Tune parallelism via `NUM_GPUS` / `PER_GPU` env vars (defaults
+8 / 1).
+
 ## Reproducing paper tables
 
 | Paper table                  | Yamls to run                                              |
