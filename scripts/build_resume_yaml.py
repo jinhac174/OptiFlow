@@ -58,8 +58,11 @@ def main():
         sys.exit(1)
 
     online_name = sweep_name.replace("offline", "online", 1)
-    online_project = (offline.get("wandb_project") or "fpot_online").replace(
-        "offline", "online", 1)
+    # Online wandb project: explicit override > substring replace on offline project.
+    online_project = offline.get("wandb_project_online")
+    if not online_project:
+        online_project = (offline.get("wandb_project") or "fpot_online").replace(
+            "offline", "online", 1)
 
     online_fixed = {k: v for k, v in fixed.items()
                     if not (k.startswith("train") or k.startswith("logging"))}

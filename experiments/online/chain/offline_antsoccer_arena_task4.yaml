@@ -1,6 +1,7 @@
 name: fpot_offline_antsoccer_arena_task4
 description: Offline-only FPOT on antsoccer-arena task4, seeds 1-8 (1M steps, saves final_agent for chained online resume)
-wandb_project: fpot_offline_chain
+wandb_project: fpot_offline_for_resume
+wandb_project_online: fpot_online_resume
 
 sweep:
   seed: [1, 2, 3, 4, 5, 6, 7, 8]
