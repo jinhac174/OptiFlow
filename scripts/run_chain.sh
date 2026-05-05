@@ -3,15 +3,15 @@
 # Designed for non-preempting environments (e.g. Vast AI). Each phase calls
 # run_sweep.sh, which queues at most NUM_GPUS * PER_GPU jobs concurrently.
 #
-# Usage (foreground, e.g. tmux session):
-#   bash scripts/run_chain.sh
+# Usage:
+#   bash scripts/run_chain.sh                                # default yamls
+#   bash scripts/run_chain.sh path/to/a.yaml path/to/b.yaml  # explicit list
 #
-# Usage (background-survives-disconnect — recommended on Vast):
-#   nohup bash scripts/run_chain.sh > logs/local/chain.log 2>&1 &
+# Background-survives-disconnect (recommended on Vast):
+#   nohup bash scripts/run_chain.sh [yamls...] > logs/local/chain.log 2>&1 &
 #   disown
 #
-# Edit OFFLINE_YAMLS below to change which tasks run; tune NUM_GPUS / PER_GPU
-# via env (defaults: 8 / 1).
+# Tune NUM_GPUS / PER_GPU via env (defaults: 8 / 1).
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
@@ -19,10 +19,16 @@ cd "$(dirname "$0")/.."
 NUM_GPUS=${NUM_GPUS:-8}
 PER_GPU=${PER_GPU:-1}
 
-OFFLINE_YAMLS=(
-    "experiments/online/chain/offline_antsoccer_arena_task4.yaml"
-    "experiments/online/chain/offline_scene_play_task2.yaml"
-)
+# Positional args = list of offline yamls to run. If none given, use the
+# scene+antsoccer default. (Backward-compatible with bare `bash run_chain.sh`.)
+if [ $# -gt 0 ]; then
+    OFFLINE_YAMLS=("$@")
+else
+    OFFLINE_YAMLS=(
+        "experiments/online/chain/offline_antsoccer_arena_task4.yaml"
+        "experiments/online/chain/offline_scene_play_task2.yaml"
+    )
+fi
 
 ONLINE_YAML_DIR=experiments/online/chain/runtime
 mkdir -p "$ONLINE_YAML_DIR" logs/local
