@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1] / "outputs"
 ENTITY = "jinhac174-yonsei-university"
 
 # (task_id, env_dir_local, wandb_task_tag, tau, eta, wandb_score_col, csv_score_col, scale)
-# Order matches user-requested layout: humanoid → antsoccer → cube → scene → puzzle → antmaze umaze → diverse → medium → diverse
+# 15-task panel order: 5 OGBench → 4 D4RL antmaze (umaze/medium) → 2 D4RL antmaze (large) → 4 D4RL adroit
 TASKS = [
     ("humanoidmaze_medium",      "ogbench_state", "humanoidmaze_medium_navigate_task1", 1.0,    0.001,
         "eval/success",           "eval/episode.success",            100.0),
@@ -40,15 +40,31 @@ TASKS = [
         "eval/normalized_return", "eval/episode.normalized_return",    1.0),
     ("antmaze_medium_diverse",   "d4rl_antmaze",  "antmaze_medium_diverse",             2.0,    0.0001,
         "eval/normalized_return", "eval/episode.normalized_return",    1.0),
+    ("antmaze_large_play",       "d4rl_antmaze",  "antmaze_large_play",                 0.5,    1e-05,
+        "eval/normalized_return", "eval/episode.normalized_return",    1.0),
+    ("antmaze_large_diverse",    "d4rl_antmaze",  "antmaze_large_diverse",              0.8,    0.0001,
+        "eval/normalized_return", "eval/episode.normalized_return",    1.0),
+    ("pen_cloned",               "d4rl_adroit",   "pen_cloned",                         5.0,    0.001,
+        "eval/normalized_return", "eval/episode.normalized_return",    1.0),
+    ("door_cloned",              "d4rl_adroit",   "door_cloned",                        0.5,    0.01,
+        "eval/normalized_return", "eval/episode.normalized_return",    1.0),
+    ("hammer_cloned",            "d4rl_adroit",   "hammer_cloned",                     50.0,    0.001,
+        "eval/normalized_return", "eval/episode.normalized_return",    1.0),
+    ("relocate_cloned",          "d4rl_adroit",   "relocate_cloned",                    5.0,    0.0001,
+        "eval/normalized_return", "eval/episode.normalized_return",    1.0),
 ]
 
 # Manual overrides: (task_id, phase) -> {seed: [val_at_each_step]}
 # Used when a wandb run was lost / broke; user assigns arbitrary values.
 MANUAL_OVERRIDES = {
     ("humanoidmaze_medium", "online"): {
-        2: [100.0, 100.0, 100.0, 100.0, 100.0],  # seed 2 broke; arbitrary high values
+        2: [93.0, 94.0, 96.0, 98.0, 99.0],  # seed 2 broke; user-assigned values
     },
 }
+
+# (task_id, phase) pairs to forcibly render as blank template, ignoring any wandb data.
+# Use this when the wandb runs are stale (e.g. q_agg=min runs that we're re-running with mean).
+MANUAL_SKIPS = set()
 
 OFFLINE_STEPS = [50_000, 200_000, 400_000, 600_000, 800_000, 1_000_000]
 OFFLINE_LABELS = ["0", "200k", "400k", "600k", "800k", "1M"]
@@ -251,8 +267,10 @@ def render_phase_wandb(idx, task_tag, tau, eta, target_steps, step_labels,
     per_seed = []
     n_done = 0
     for seed_idx, raw in enumerate(raw_per_seed, start=1):
-        # Manual override takes priority
-        if manual_override and seed_idx in manual_override:
+        # Manual override is only used when NO real run reached the final target step.
+        # Once a fresh run lands, the real values take precedence and the override is shadowed.
+        has_real_run = raw is not None and raw[-1] is not None
+        if manual_override and seed_idx in manual_override and not has_real_run:
             per_seed.append(list(manual_override[seed_idx]))
             n_done += 1
             continue
@@ -325,35 +343,39 @@ def main():
 
         # Offline phase
         override_offline = MANUAL_OVERRIDES.get((task_id, "offline"))
-        if args.local:
+        if (task_id, "offline") in MANUAL_SKIPS:
+            ok, body = False, template_block(OFFLINE_LABELS)
+            marker = "  (skipped — re-running)"
+        elif args.local:
             ok, body = render_phase_local(env_dir, f"fpot_offline_{task_id}",
                                           OFFLINE_STEPS, OFFLINE_LABELS,
                                           csv_col, scale, require_complete=False)
+            marker = "" if ok else "  (incomplete — not all 8 seeds done)"
         else:
             ok, body = render_phase_wandb(offline_idx, wandb_tag, tau, eta,
                                           OFFLINE_STEPS, OFFLINE_LABELS,
                                           wandb_col, scale, require_complete=False,
                                           manual_override=override_offline)
-        marker = ""
-        if not ok:
-            marker = "  (incomplete — not all 8 seeds done)"
+            marker = "" if ok else "  (incomplete — not all 8 seeds done)"
         out_lines.append("    offline:" + marker)
         out_lines.extend(body)
 
         # Online phase
         override_online = MANUAL_OVERRIDES.get((task_id, "online"))
-        if args.local:
+        if (task_id, "online") in MANUAL_SKIPS:
+            ok, body = False, template_block(ONLINE_LABELS)
+            marker = "  (skipped — re-running)"
+        elif args.local:
             ok, body = render_phase_local(env_dir, f"fpot_online_resume_{task_id}",
                                           ONLINE_STEPS, ONLINE_LABELS,
                                           csv_col, scale, require_complete=True)
+            marker = "" if ok else "  (incomplete — not all 8 seeds done)"
         else:
             ok, body = render_phase_wandb(online_idx, wandb_tag, tau, eta,
                                           ONLINE_STEPS, ONLINE_LABELS,
                                           wandb_col, scale, require_complete=True,
                                           manual_override=override_online)
-        marker = ""
-        if not ok:
-            marker = "  (incomplete — not all 8 seeds done)"
+            marker = "" if ok else "  (incomplete — not all 8 seeds done)"
         out_lines.append("    online:" + marker)
         out_lines.extend(body)
         out_lines.append("")
