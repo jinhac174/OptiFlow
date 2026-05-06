@@ -1,5 +1,5 @@
-name: fpot_offline_antmaze_large_play
-description: Offline-only FPOT on D4RL antmaze-large-play-v2, 1M steps, 8 seeds (paper Tab. 5; CDQL=true; saves final_agent for chained online resume)
+name: fpot_offline_antmaze_medium_play
+description: Offline-only FPOT on D4RL antmaze-medium-play-v2, 1M steps, 8 seeds (paper Tab. 5; saves final_agent for chained online resume)
 wandb_project: fpot_offline_for_resume
 wandb_project_online: fpot_online_resume
 
@@ -8,11 +8,11 @@ sweep:
 
 fixed:
   env: d4rl_antmaze
-  env.env_name: antmaze-large-play-v2
+  env.env_name: antmaze-medium-play-v2
   agent: fpot
-  agent.w_temperature: 0.5
-  agent.eta_temperature: 1e-05
-  agent.q_agg: min
+  agent.w_temperature: 0.8
+  agent.eta_temperature: 0.001
+  agent.q_agg: mean
   agent.use_vabc_td_target: false
   agent.discount: 0.99
   train: offline

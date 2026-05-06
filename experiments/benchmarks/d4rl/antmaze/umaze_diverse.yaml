@@ -11,7 +11,7 @@ fixed:
   agent: fpot
   agent.w_temperature: 1.5
   agent.eta_temperature: 1e-06
-  agent.q_agg: min
+  agent.q_agg: mean
   agent.use_vabc_td_target: false
   agent.discount: 0.99
   train.max_steps: 500000

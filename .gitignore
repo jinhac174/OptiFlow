@@ -30,3 +30,6 @@ paper.txt
 fql/
 debug_checkpoints/
 HANDOFF.md
+
+# Working O2O scratch — regenerate via scripts/extract_o2o_metrics.py
+O2O.txt
