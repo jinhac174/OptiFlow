@@ -1,6 +1,6 @@
-name: fpot_online_door_cloned
-description: Offline-to-online FPOT on D4RL door-cloned-v1 (1M offline + 1M online, seeds 1-8; CDQ=true)
-wandb_project: fpot_online
+name: optiflow_online_door_cloned
+description: Offline-to-online OptiFlow on D4RL door-cloned-v1 (1M offline + 1M online, seeds 1-8)
+wandb_project: optiflow_online
 
 sweep:
   seed: [1, 2, 3, 4, 5, 6, 7, 8]
@@ -8,10 +8,10 @@ sweep:
 fixed:
   env: d4rl_adroit
   env.env_name: door-cloned-v1
-  agent: fpot
+  agent: optiflow
   agent.w_temperature: 1.0
-  agent.eta_temperature: 1e-06
-  agent.q_agg: min
+  agent.eta_temperature: 1e-05
+  agent.q_agg: mean
   agent.use_vabc_td_target: false
   agent.discount: 0.99
   train: offline_to_online

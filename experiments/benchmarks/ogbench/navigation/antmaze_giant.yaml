@@ -1,6 +1,6 @@
-name: fpot_ogbench_antmaze_giant
-description: FPOT on OGBench antmaze-giant-navigate, tasks 1-5, seeds 1-8 (paper Tab. 4 row 2; CDQL=true, gamma=0.995)
-wandb_project: fpot_ogbench_benchmark
+name: optiflow_ogbench_antmaze_giant
+description: OptiFlow on OGBench antmaze-giant-navigate, tasks 1-5, seeds 1-8 (paper Tab. 4 row 2; CDQL=true, gamma=0.995)
+wandb_project: optiflow_ogbench_benchmark
 
 sweep:
   env.env_name:
@@ -13,7 +13,7 @@ sweep:
 
 fixed:
   env: ogbench_state
-  agent: fpot
+  agent: optiflow
   agent.w_temperature: 1.0
   agent.eta_temperature: 0.001
   agent.q_agg: min

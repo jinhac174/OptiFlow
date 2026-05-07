@@ -1,4 +1,4 @@
-"""Flax modules used by FPOT: MLP, Value (critic), FlowPolicy (teacher), NNPolicy (one-step student)."""
+"""Flax modules used by OptiFlow: MLP, Value (critic), FlowPolicy (teacher), NNPolicy (one-step student)."""
 from typing import Any, Sequence
 
 import flax.linen as nn

@@ -1,4 +1,4 @@
-"""FPOT agent — Flow Policy via Optimal Transport (paper Sec. 4)."""
+"""OptiFlow agent (paper Sec. 4)."""
 import copy
 from typing import Any
 
@@ -13,7 +13,7 @@ from .flax_utils import ModuleDict, TrainState, nonpytree_field
 from .networks import FlowPolicy, NNPolicy, Value
 
 
-class FPOTAgent(flax.struct.PyTreeNode):
+class OptiFlowAgent(flax.struct.PyTreeNode):
 
     rng: Any
     network: Any

@@ -27,7 +27,7 @@ distinct `(τ, η)` per paper Tab. 5).
 
 | Source                                | Where it lives                                                                               |
 |---------------------------------------|----------------------------------------------------------------------------------------------|
-| Paper Tab. 2 (shared defaults)        | [`configs/agent/fpot.yaml`](../configs/agent/fpot.yaml) — `[512]×4` GeLU, lr 3e-4, etc.     |
+| Paper Tab. 2 (shared defaults)        | [`configs/agent/optiflow.yaml`](../configs/agent/optiflow.yaml) — `[512]×4` GeLU, lr 3e-4, etc. |
 | Paper Tab. 3 (per-task γ, TD target)  | Each yaml's `fixed:` block (`agent.discount`, `agent.use_vabc_td_target`).                  |
 | Paper Tab. 4 (per-task τ, η, OGBench) | Each yaml's `fixed:` block (`agent.w_temperature`, `agent.eta_temperature`).                |
 | Paper Tab. 5 (per-task τ, η, D4RL)    | Same.                                                                                       |
@@ -67,7 +67,7 @@ sweep:                            # Cartesian product (declaration order = loop 
 
 fixed:                            # appended to every job
   env: ogbench_state              # config-group selection
-  agent: fpot
+  agent: optiflow
   agent.w_temperature: 2.0
   ...
 ```

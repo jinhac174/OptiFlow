@@ -1,6 +1,6 @@
-name: fpot_ogbench_humanoidmaze_large
-description: FPOT on OGBench humanoidmaze-large-navigate, tasks 1-5, seeds 1-8 (gamma=0.999)
-wandb_project: fpot_ogbench_benchmark
+name: optiflow_ogbench_humanoidmaze_large
+description: OptiFlow on OGBench humanoidmaze-large-navigate, tasks 1-5, seeds 1-8 (gamma=0.999)
+wandb_project: optiflow_ogbench_benchmark
 
 sweep:
   env.env_name:
@@ -13,7 +13,7 @@ sweep:
 
 fixed:
   env: ogbench_state
-  agent: fpot
+  agent: optiflow
   agent.w_temperature: 2.0
   agent.eta_temperature: 0.1
   agent.q_agg: mean

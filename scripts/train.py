@@ -1,4 +1,4 @@
-"""FPOT training entry point — dispatches offline vs offline-to-online via cfg.train.mode."""
+"""OptiFlow training entry point — dispatches offline vs offline-to-online via cfg.train.mode."""
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -17,9 +17,9 @@ import jax.numpy as jnp
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
 
-from fpot import FPOTAgent
-from fpot.evaluation import evaluate
-from fpot.replay_buffer import ReplayBuffer
+from optiflow import OptiFlowAgent
+from optiflow.evaluation import evaluate
+from optiflow.replay_buffer import ReplayBuffer
 from envs.env_utils import make_env_and_datasets
 
 try:
@@ -28,7 +28,7 @@ except Exception:
     wandb = None
 
 try:
-    from fpot.flax_utils import save_agent
+    from optiflow.flax_utils import save_agent
 except Exception:
     save_agent = None
 
@@ -352,7 +352,7 @@ def maybe_init_wandb(cfg: DictConfig, run_dir: Path):
         tags.append("off2on")
 
     # --- project: cfg.logging.wandb_project (set per-yaml) ---
-    project = cfg.logging.get("wandb_project", None) or "fpot"
+    project = cfg.logging.get("wandb_project", None) or "optiflow"
     if cfg.logging.get("wandb_project_append_date", False):
         date_fmt = str(cfg.logging.get("wandb_project_date_format", "%Y%m%d"))
         project = f"{project}_{datetime.now().strftime(date_fmt)}"
@@ -460,7 +460,7 @@ def offline_train(cfg: DictConfig, run_dir: Path):
         train_dataset.p_aug = float(cfg.agent.get('p_aug', 0.5))
 
     ex_batch = train_dataset.sample(2)
-    agent = FPOTAgent.create(
+    agent = OptiFlowAgent.create(
         seed=seed,
         ex_observations=ex_batch["observations"],
         ex_actions=ex_batch["actions"],
@@ -535,7 +535,7 @@ def offline_to_online_train(cfg: DictConfig, run_dir: Path):
         train_dataset.p_aug = float(cfg.agent.get("p_aug", 0.5))
 
     ex_batch = train_dataset.sample(2)
-    agent = FPOTAgent.create(
+    agent = OptiFlowAgent.create(
         seed=seed,
         ex_observations=ex_batch["observations"],
         ex_actions=ex_batch["actions"],
@@ -555,7 +555,7 @@ def offline_to_online_train(cfg: DictConfig, run_dir: Path):
     # ----- Resume from checkpoint? -----
     resume_from = cfg.train.get("resume_from", None)
     if resume_from is not None and str(resume_from).strip() != "":
-        from fpot.flax_utils import restore_agent
+        from optiflow.flax_utils import restore_agent
         print(f"=== Resuming from checkpoint: {resume_from} ===", flush=True)
         agent = restore_agent(agent, str(resume_from), 0)
         print(f"=== Skipping offline phase, jumping to online phase ===", flush=True)

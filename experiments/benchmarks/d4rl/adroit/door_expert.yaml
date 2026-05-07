@@ -1,6 +1,6 @@
-name: fpot_d4rl_adroit_door_expert
-description: FPOT on D4RL door-expert-v1, seeds 1-8, 500K steps (paper Tab. 5; CDQL=true)
-wandb_project: fpot_d4rl_benchmark
+name: optiflow_d4rl_adroit_door_expert
+description: OptiFlow on D4RL door-expert-v1, seeds 1-8, 500K steps (paper Tab. 5; CDQL=true)
+wandb_project: optiflow_d4rl_benchmark
 
 sweep:
   seed: [1, 2, 3, 4, 5, 6, 7, 8]
@@ -8,7 +8,7 @@ sweep:
 fixed:
   env: d4rl_adroit
   env.env_name: door-expert-v1
-  agent: fpot
+  agent: optiflow
   agent.w_temperature: 10
   agent.eta_temperature: 0.001
   agent.q_agg: min

@@ -1,6 +1,6 @@
-name: fpot_ogbench_puzzle_3x3
-description: FPOT on OGBench puzzle-3x3-play, tasks 1-5, seeds 1-8
-wandb_project: fpot_ogbench_benchmark
+name: optiflow_ogbench_puzzle_3x3
+description: OptiFlow on OGBench puzzle-3x3-play, tasks 1-5, seeds 1-8
+wandb_project: optiflow_ogbench_benchmark
 
 sweep:
   env.env_name:
@@ -13,8 +13,8 @@ sweep:
 
 fixed:
   env: ogbench_state
-  agent: fpot
-  agent.w_temperature: 0.5
+  agent: optiflow
+  agent.w_temperature: 1.0
   agent.eta_temperature: 0.001
   agent.q_agg: mean
   agent.use_vabc_td_target: false

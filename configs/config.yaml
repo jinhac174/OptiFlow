@@ -1,5 +1,5 @@
 defaults:
-  - agent: fpot
+  - agent: optiflow
   - env: ogbench_state
   - train: offline
   - eval: default

@@ -3,13 +3,13 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "fpot"
+name = "optiflow"
 version = "0.1.0"
-description = "Flow Policy via Optimal Transport"
+description = "OptiFlow: value-weighted optimal-transport one-step flow policy"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
 license = { text = "MIT" }
-authors = [{ name = "FPOT authors" }]
+authors = [{ name = "Anonymous" }]
 
 # Single environment that hosts both OGBench (gymnasium / mujoco 3.x) and D4RL
 # (gym 0.23 / mujoco_py 2.1) stacks side by side. mujoco_py also requires the
@@ -45,8 +45,5 @@ dependencies = [
     "d4rl @ git+https://github.com/Farama-Foundation/d4rl@master",
 ]
 
-[project.urls]
-Homepage = "https://github.com/jinhac174/FPOT"
-
 [tool.setuptools.packages.find]
-include = ["fpot*", "envs*"]
+include = ["optiflow*", "envs*"]

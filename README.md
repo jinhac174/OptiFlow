@@ -1,21 +1,16 @@
-# FPOT: Flow Policy via Optimal Transport
+# OptiFlow
 
-JAX/Flax implementation of **Flow Policy via Optimal Transport (FPOT)** — a
-value-weighted optimal-transport method for learning efficient one-step flow
-policies in offline reinforcement learning.
+JAX/Flax implementation of **OptiFlow** — value-weighted optimal-transport
+distillation for one-step flow policies in offline RL.
 
-FPOT jointly trains:
-
-- a critic `Q_φ(s, a)`,
-- a value-aware reference flow policy `μ_ω(s, z)` (multi-step Euler integration),
-- a one-step flow policy `μ_θ(s, z)` deployed at inference.
-
-Per state, it constructs an entropic optimal-transport coupling between
-reference- and one-step-policy action samples whose teacher marginal is
-critic-weighted, then distills the one-step policy toward transport-selected
+OptiFlow jointly trains a critic `Q_φ(s, a)`, a value-aware reference flow
+policy `μ_ω(s, z)`, and a one-step flow policy `μ_θ(s, z)` deployed at
+inference. For each state, an entropic optimal-transport coupling between
+reference- and one-step-policy action samples uses a critic-weighted teacher
+marginal; the one-step policy is then distilled toward transport-selected
 reference actions. The algorithm lives in
-[`fpot/agent.py`](fpot/agent.py); per-task hyperparameters (paper Tables 4–5)
-are encoded in the `experiments/` yamls.
+[`optiflow/agent.py`](optiflow/agent.py); per-task hyperparameters (paper
+Tables 4–5) are encoded in the `experiments/` yamls.
 
 ---
 
@@ -31,21 +26,34 @@ mkdir -p ~/.mujoco && cd ~/.mujoco
 curl -L https://github.com/deepmind/mujoco/releases/download/2.1.0/mujoco210-linux-x86_64.tar.gz | tar -xz
 ```
 
-### 2. Conda env + pip install
+### 2. Conda env + system libs
 
 ```bash
-conda create -n fpot python=3.10 -y
-conda activate fpot
+conda create -n optiflow python=3.10 -y
+conda activate optiflow
 # mujoco_py compiles a Cython extension on first import; it needs GLEW headers
 # and patchelf. Install via conda-forge (no root required):
 conda install -c conda-forge -y glew patchelf
+```
+
+### 3. Pre-pin Cython before pip install
+
+`mujoco_py==2.1.2.14` only builds against `Cython<3`. Install it first so
+pip's resolver can't upgrade it during the next step:
+
+```bash
+pip install "Cython<3" "numpy==1.26.4"
+```
+
+### 4. Install OptiFlow
+
+```bash
 pip install -e .
 ```
 
-`pip install -e .` reads `pyproject.toml` and pulls every
-JAX/Flax/OGBench/D4RL dependency.
+This pulls every JAX/Flax/OGBench/D4RL dependency from `pyproject.toml`.
 
-### 3. Runtime exports (per shell)
+### 5. Runtime exports (per shell)
 
 JAX needs to find its bundled CUDA wheels, `mujoco_py` needs the MuJoCo 2.1
 binary, and rendering uses OSMesa:
@@ -57,38 +65,32 @@ export MUJOCO_GL=osmesa
 export D4RL_SUPPRESS_IMPORT_ERROR=1
 ```
 
-### 4. Verify
+### 6. Verify
 
 ```bash
 python -c "import jax; print(jax.devices())"
-python -c "from fpot import FPOTAgent; print('FPOT OK')"
+python -c "from optiflow import OptiFlowAgent; print('OptiFlow OK')"
 python -c "import ogbench; import d4rl; print('envs OK')"
 ```
 
 ---
 
-## Benchmark experiments
+## Quick start: train one job
 
-Every paper experiment is one yaml under [`experiments/`](experiments/) — see
-[`experiments/README.md`](experiments/README.md) for the full layout. Each
-yaml's `fixed:` block holds the per-task hyperparameters from paper Tabs. 3–5
-(`agent.w_temperature` = τ, `agent.eta_temperature` = η, `agent.q_agg`,
-`agent.use_vabc_td_target`, `agent.discount`); the `sweep:` block enumerates
-the seeds (and, for state-based OGBench, the 5 task variants per family).
+A "job" is one `(task, seed)` configuration. Pick the matching benchmark
+yaml, copy its `fixed:` overrides onto the command line, set `seed`, and
+pass the explicit `env.env_name`. **Any task can be trained by adjusting
+the overrides below** — set `env`, `env.env_name`, the four agent
+hyperparameters, and `seed`.
 
-### Launch a single job
-
-A single job is one `(task, seed)` configuration. Pick the matching benchmark
-yaml, copy its `fixed:` overrides onto the command line, set `seed`, and pass
-the explicit `env.env_name`. Example — `cube-double-play-singletask-task2-v0`,
-seed 1, with the hyperparameters from
-[`experiments/benchmarks/ogbench/manipulation/cube_double.yaml`](experiments/benchmarks/ogbench/manipulation/cube_double.yaml):
+Example — `cube-double-play-singletask-task2-v0`, seed 1, with the
+hyperparameters from [`experiments/benchmarks/ogbench/manipulation/cube_double.yaml`](experiments/benchmarks/ogbench/manipulation/cube_double.yaml):
 
 ```bash
 python scripts/train.py \
     env=ogbench_state \
     env.env_name=cube-double-play-singletask-task2-v0 \
-    agent=fpot \
+    agent=optiflow \
     agent.w_temperature=2.0 \
     agent.eta_temperature=0.01 \
     agent.q_agg=mean \
@@ -99,28 +101,32 @@ python scripts/train.py \
     seed=1
 ```
 
-The defaults in [`configs/agent/fpot.yaml`](configs/agent/fpot.yaml) supply
-all of paper Tab. 2 (`[512]×4` MLP, lr 3e-4, batch 256, target-network τ
-0.005, N=16 student / M=64 teacher samples, 30 Sinkhorn iters, ε=0.05);
-overrides above only set the per-task fields.
+Defaults from [`configs/agent/optiflow.yaml`](configs/agent/optiflow.yaml)
+supply paper Tab. 2 (`[512]×4` MLP, lr 3e-4, batch 256, target-network
+τ 0.005, N=16 student / M=64 teacher samples, 30 Sinkhorn iters, ε=0.05).
+Per-task overrides set τ, η, `q_agg`, the VaBC TD-target flag, and γ.
 
-Any Hydra override is fair game on the command line — common ones:
+Common command-line overrides:
 
 | Override | Effect |
 |---|---|
-| `seed=<N>` | random seed (re-creates JAX PRNGKey + dataset RNG) |
-| `train.max_steps=<N>` | number of gradient steps (1M for state OGBench, 500K for D4RL/visual) |
-| `train.eval_interval=<N>` | eval cadence in steps |
+| `seed=<N>` | random seed |
+| `train.max_steps=<N>` | gradient steps (1M state OGBench, 500K visual / D4RL) |
+| `train.eval_interval=<N>` | eval cadence |
 | `eval.num_eval_episodes=<N>` | episodes per eval (default 100) |
 | `logging.save_checkpoint=true` | write `final_agent/params_0.pkl` at the end |
 | `logging.wandb_mode=disabled` | turn off wandb for this run |
 | `logging.root_dir=<path>` | redirect outputs (default `outputs/`) |
 
-### Sweep one task or one family
+---
 
-[`scripts/run_sweep.sh`](scripts/run_sweep.sh) launches every job in a yaml
-across local GPUs (`<yaml> [num_gpus=8] [per_gpu=1]`, pins each job to
-GPU `idx % num_gpus`, per-job logs go to `logs/local/<name>_<idx>.log`):
+## Reproduce paper Table 1 (offline benchmark)
+
+Each yaml under [`experiments/benchmarks/`](experiments/benchmarks/) holds
+the per-task `fixed:` overrides (paper Tab. 4 / Tab. 5) plus the
+`sweep:` block (env variants × seeds).
+
+Run a whole yaml across local GPUs:
 
 ```bash
 # 40 jobs: 5 task variants × 8 seeds
@@ -133,19 +139,19 @@ bash scripts/run_sweep.sh experiments/benchmarks/d4rl/adroit/pen_cloned.yaml
 Inspect before launching:
 
 ```bash
-# Total job count for one yaml
+# Total job count
 python scripts/sweep_runner.py count --sweep experiments/benchmarks/ogbench/manipulation/cube_double.yaml
 
-# Print one job's resolved train.py command without executing
+# Print one job's resolved command
 python scripts/sweep_runner.py run \
     --sweep experiments/benchmarks/ogbench/manipulation/cube_double.yaml \
     --idx 0 --dry-run
 ```
 
-### Reproduce paper Table 1
+Reproduce the full table:
 
 ```bash
-# OGBench state-based (1M steps, 8 seeds, 5 tasks per family)
+# OGBench state (1M steps, 8 seeds, 5 task variants per family)
 for f in experiments/benchmarks/ogbench/{navigation,manipulation}/*.yaml; do
     bash scripts/run_sweep.sh "$f"
 done
@@ -155,42 +161,59 @@ for f in experiments/benchmarks/ogbench/visual/*.yaml; do
     bash scripts/run_sweep.sh "$f"
 done
 
-# D4RL AntMaze + Adroit (500K steps, 8 seeds)
+# D4RL AntMaze + Adroit (1M steps, 8 seeds)
 for f in experiments/benchmarks/d4rl/{antmaze,adroit}/*.yaml; do
     bash scripts/run_sweep.sh "$f"
 done
 ```
 
-### Reproduce paper Appendix C.2 (offline-to-online fine-tuning)
+---
 
-Each yaml in `experiments/online/` runs a single process that does **1M
-offline steps followed by 1M online steps** on the same task — total 2M
-gradient updates per seed, 8 seeds per task. The buffer is pre-seeded with
-the offline dataset and online transitions are appended uniformly. WandB
-step axis is continuous across phases (offline `1..1e6`, online
-`1e6+1..2e6`); runs are prefixed `O2O |` and tagged `off2on`.
+## Reproduce paper Appendix C.2 (offline-to-online fine-tuning)
+
+Each yaml in [`experiments/online/`](experiments/online/) runs **1M offline
+steps + 1M online steps in one process** (2M gradient updates per seed).
+The replay buffer is pre-seeded with the offline dataset; online
+transitions are appended uniformly. WandB step axis is continuous (offline
+`1..1e6`, online `1e6+1..2e6`); runs are prefixed `O2O |` and tagged
+`off2on`. Hyperparameters come from paper Tab. C.2 (App. C.2) — `q_agg`
+and `(τ, η)` differ from the offline benchmark for adroit tasks.
+
+Run all included tasks:
 
 ```bash
-# All 7 tasks (3 OGBench + 4 D4RL Adroit), 8 seeds each
 for f in experiments/online/*.yaml; do
     bash scripts/run_sweep.sh "$f"
 done
+```
 
-# Or one task at a time
+Run one:
+
+```bash
 bash scripts/run_sweep.sh experiments/online/cube_double.yaml
 ```
 
-The offline-phase endpoint is always saved to
-`outputs/<env>/<sweep>/<hp>/seed_<N>/run_<NN>/agent_step_1000000/`
-(regardless of `logging.save_checkpoint`) so a crashed online phase can be
-resumed without redoing the offline phase:
+To O2O **any other task**, copy a yaml from `experiments/online/`, edit
+`env.env_name` and the agent overrides to match the App. C.2 row for that
+task, and run it. The structure is the same as the benchmark yamls plus:
+
+```yaml
+fixed:
+  ...
+  train: offline_to_online
+  train.offline_max_steps: 1000000
+  train.online_max_steps: 1000000
+  train.eval_interval: 50000
+```
+
+Resume a crashed online phase from the saved offline checkpoint:
 
 ```bash
 python scripts/train.py train=offline_to_online \
     env=ogbench_state env.env_name=cube-double-play-singletask-task2-v0 \
-    agent=fpot agent.w_temperature=2.0 agent.eta_temperature=0.01 \
+    agent=optiflow agent.w_temperature=2.0 agent.eta_temperature=0.01 \
     agent.use_vabc_td_target=true \
-    train.resume_from=outputs/ogbench_state/fpot_online_cube_double/<hp>/seed_1/run_00/agent_step_1000000 \
+    train.resume_from=outputs/ogbench_state/<sweep>/<hp>/seed_1/run_NN/agent_step_1000000 \
     seed=1
 ```
 
@@ -199,8 +222,8 @@ python scripts/train.py train=offline_to_online \
 ## Repository layout
 
 ```
-fpot/                  # Algorithm package
-  agent.py             # FPOT agent (paper Sec. 4)
+optiflow/              # Algorithm package
+  agent.py             # OptiFlow agent (paper Sec. 4)
   networks.py          # MLP, FlowPolicy (teacher), NNPolicy (student), Value
   encoders.py          # IMPALA visual encoders
   flax_utils.py        # TrainState, ModuleDict, save/restore helpers
@@ -211,7 +234,7 @@ envs/                  # Env factories + offline-dataset wrappers
   vec_utils_gymnasium.py
   d4rl_utils.py, adroit_utils.py, datasets.py
 configs/               # Hydra config groups
-  agent/fpot.yaml      # Tab. 2 shared defaults
+  agent/optiflow.yaml  # Tab. 2 shared defaults
   env/                 # 4 base templates: ogbench_{state,visual}, d4rl_{antmaze,adroit}
   train/               # offline.yaml, offline_to_online.yaml
   eval/, logging/
@@ -229,9 +252,9 @@ pyproject.toml         # Unified dependency spec
 
 ## Configuration reference
 
-Hydra resolves configs in this order, lowest to highest priority:
+Hydra resolves configs in this order, lowest → highest priority:
 
-1. Defaults from `configs/config.yaml` (`agent: fpot`, `env: ogbench_state`,
+1. Defaults from `configs/config.yaml` (`agent: optiflow`, `env: ogbench_state`,
    `train: offline`, `eval: default`, `logging: default`).
 2. Config-group overrides from the sweep yaml's `fixed:` block (e.g.
    `env: d4rl_adroit`, `train: offline_to_online`).
@@ -239,7 +262,7 @@ Hydra resolves configs in this order, lowest to highest priority:
 4. Sweep-axis overrides from `sweep:` (one combination per array index).
 5. Anything passed on the command line.
 
-Agent hyperparameters live in [`configs/agent/fpot.yaml`](configs/agent/fpot.yaml):
+Agent hyperparameters live in [`configs/agent/optiflow.yaml`](configs/agent/optiflow.yaml):
 
 | Config key                        | Paper symbol | Meaning                                                          |
 |-----------------------------------|--------------|------------------------------------------------------------------|
@@ -248,10 +271,10 @@ Agent hyperparameters live in [`configs/agent/fpot.yaml`](configs/agent/fpot.yam
 | `agent.n_student` / `n_teacher`   | N / M        | one-step / reference samples per state                           |
 | `agent.sinkhorn_eps` / `_iters`   | ε / T        | entropic regularization & Sinkhorn iterations                    |
 | `agent.lambda_vbc` / `_distill`   | λ_VBC / λ_d  | loss weights                                                     |
-| `agent.q_agg`                     | —            | `mean` (default) or `min` (CDQL — antmaze-{large,giant}, adroit) |
-| `agent.use_vabc_td_target`        | y^VaBC       | VaBC TD target variant (paper Tab. 3)                            |
+| `agent.q_agg`                     | —            | `mean` (default) or `min` (CDQL — paper Tab. 2)                  |
+| `agent.use_vabc_td_target`        | y^VaBC       | VaBC TD target variant                                           |
 | `agent.discount`                  | γ            | per-task override                                                |
-| `agent.critic_update_interval`    | —            | 1 (default); 5 for antsoccer-arena per paper Tab. 2              |
+| `agent.critic_update_interval`    | —            | 1 (default); 5 for antsoccer-arena (paper Tab. 2)                |
 
 ---
 
@@ -259,11 +282,11 @@ Agent hyperparameters live in [`configs/agent/fpot.yaml`](configs/agent/fpot.yam
 
 WandB projects collect runs by experiment family:
 
-| Project                  | Source                                    |
-|--------------------------|-------------------------------------------|
-| `fpot_ogbench_benchmark` | `experiments/benchmarks/ogbench/**`       |
-| `fpot_d4rl_benchmark`    | `experiments/benchmarks/d4rl/**`          |
-| `fpot_online`            | `experiments/online/*`                    |
+| Project                          | Source                                    |
+|----------------------------------|-------------------------------------------|
+| `optiflow_ogbench_benchmark`     | `experiments/benchmarks/ogbench/**`       |
+| `optiflow_d4rl_benchmark`        | `experiments/benchmarks/d4rl/**`          |
+| `optiflow_online`                | `experiments/online/*`                    |
 
 Run name format: `<task> | <swept-axes> | s<seed>` (offline-to-online runs
 prefix `O2O |`). Tags include `task:<name>`, `seed:<n>`, `tau:<v>`, `eta:<v>`.
@@ -277,7 +300,7 @@ containing `metrics.csv`, `config.yaml`, `config.json`, and (if
 ## Citation
 
 ```bibtex
-@inproceedings{fpot2026,
+@inproceedings{optiflow2026,
   title  = {Learning Multimodal One-step Flow Policy via Value-weighted Optimal Transport},
   author = {Anonymous},
   year   = {2026},

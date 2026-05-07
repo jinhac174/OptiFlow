@@ -1,4 +1,4 @@
-name: fpot
+name: optiflow
 
 lr: 3.0e-4
 discount: 0.99
@@ -16,7 +16,7 @@ p_aug: 0.5
 q_agg: mean
 
 # Update the critic + target critic every N gradient steps. Default 1 (every
-# step). Paper Tab. 2 sets this to 5 for antsoccer-arena (FPOT only); the actor
+# step). Paper Tab. 2 sets this to 5 for antsoccer-arena (OptiFlow only); the actor
 # update fires every step regardless.
 critic_update_interval: 1
 
